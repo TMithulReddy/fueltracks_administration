@@ -1,0 +1,281 @@
+import { useState, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, ArrowLeft, AlertCircle, Loader2 } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { useAuth } from '../../context/AuthContext'
+import { supabase } from '../../lib/supabase'
+import fuelTracksLogo from '../../assets/fuel-tracks-logo.png'
+import withTimeout from '../../utils/withTimeout'
+
+function FieldError({ message }) {
+  if (!message) return null
+  return (
+    <p style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#E8192C', fontSize: 13, marginTop: 4 }}>
+      <AlertCircle size={13} />
+      {message}
+    </p>
+  )
+}
+
+export default function EmployeeLogin() {
+  const { user, profile: authProfile, setProfile, setIsLoggingIn } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const handleSessionIsolation = async () => {
+      // If already logged in as employee → redirect to dashboard
+      if (user && authProfile) {
+        if (authProfile.role === 'employee') {
+          navigate('/employee', { replace: true })
+          return
+        }
+        // If logged in as admin/super_admin on employee login page
+        // → silently sign them out so employee can log in cleanly
+        if (authProfile.role === 'admin' || authProfile.role === 'super_admin') {
+          await supabase.auth.signOut()
+          // Do not navigate — just let the login form render
+          return
+        }
+      }
+    }
+    handleSessionIsolation()
+  }, [user, authProfile, navigate])
+
+  const [identifier, setIdentifier] = useState('')
+  const [password,   setPassword]   = useState('')
+  const [dailyCode,  setDailyCode]  = useState('')
+  const [showPw,     setShowPw]     = useState(false)
+  const [loading,    setLoading]    = useState(false)
+  const [errors, setErrors] = useState({ identifier: '', password: '', dailyCode: '', general: '' })
+
+  useEffect(() => {
+    if (!loading) return
+    const timer = setTimeout(() => {
+      setLoading(false)
+      setIsLoggingIn(false)
+      setError('Connection is slow. Please wait and try again.')
+    }, 125000)
+    return () => clearTimeout(timer)
+  }, [loading, setIsLoggingIn])
+
+  const [showSlowWarning, setShowSlowWarning] = useState(false)
+  useEffect(() => {
+    if (!loading) { setShowSlowWarning(false); return }
+    const warn = setTimeout(() => setShowSlowWarning(true), 3000)
+    return () => clearTimeout(warn)
+  }, [loading])
+
+  const setError = (msg) => setErrors(prev => ({ ...prev, general: msg }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    setIsLoggingIn(true)
+
+    try {
+      let emailToUse = identifier.trim()
+
+      if (!identifier.includes('@')) {
+        const { data: resolvedEmail } = await Promise.race([
+          supabase.rpc('get_email_by_identifier', { identifier: identifier.trim() }),
+          new Promise(resolve => setTimeout(() => resolve({ data: null }), 4000))
+        ])
+        if (resolvedEmail) {
+          emailToUse = resolvedEmail
+        } else {
+          setError('Employee ID not found. Please try with email.')
+          return
+        }
+      }
+
+      const { data: authData, error: authError } = await withTimeout(
+        supabase.auth.signInWithPassword({ email: emailToUse, password }),
+        120000
+      )
+
+      if (authError) {
+        supabase.from('login_history').insert({
+          profile_id: null, session_id: crypto.randomUUID(),
+          event_type: 'failed_attempt', login_at: new Date().toISOString(),
+          status: 'failed', daily_code_used: dailyCode.trim(), daily_code_valid: false,
+        }).then(({ error }) => { if (error) console.error('[Login History]', error) })
+
+        setError('Invalid credentials. Please try again.')
+        return
+      }
+
+      await new Promise(r => setTimeout(r, 200))
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, employee_id, role, is_active, must_change_password')
+        .eq('id', authData.user.id)
+        .maybeSingle()
+
+      if (profileError || !profile) {
+        await supabase.auth.signOut()
+        setError('Could not load profile. Please try again.')
+        return
+      }
+
+      const { data: codeCheck } = await supabase.rpc('validate_daily_code', { p_code: dailyCode.trim() })
+
+      if (!codeCheck || !codeCheck.valid) {
+        await supabase.auth.signOut()
+        setError(codeCheck?.message || 'Invalid daily code. Contact your admin.')
+        return
+      }
+
+      if (profile.role !== 'employee') {
+        await supabase.auth.signOut()
+        setError('Access denied. This portal is for employees only.')
+        return
+      }
+
+      // Atomic session upsert — database handles race conditions
+      // If open session exists today (any browser/device) → returns existing
+      // If no open session today → creates new one
+      // Unique index at DB level prevents duplicates even under concurrent logins
+      supabase.rpc('upsert_login_session', {
+        p_profile_id:      profile.id,
+        p_session_id:      crypto.randomUUID(),
+        p_daily_code_used: dailyCode.trim(),
+        p_login_at:        new Date().toISOString()
+      }).then(({ data, error }) => {
+        if (error) console.error('[Login Session]', error)
+        else console.log('[Login Session]', data?.message)
+      })
+
+      supabase.from('profiles').update({ is_online: true }).eq('id', profile.id)
+        .then(({ error }) => { if (error) console.error('[Profiles]', error) })
+
+      toast.success('Welcome back!')
+      setProfile(profile)
+
+      if (profile.must_change_password) navigate('/change-password')
+      else navigate('/employee')
+
+    } catch {
+      setError('An error occurred. Please try again.')
+    } finally {
+      setLoading(false)
+      setIsLoggingIn(false)
+    }
+  }
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #F0F7FF 0%, #E8F4FD 60%, #F0F7FF 100%)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      padding: '24px', position: 'relative', overflow: 'hidden',
+    }}>
+      <div style={{
+        position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.5,
+        backgroundImage: 'radial-gradient(circle, #DBEAFE 1px, transparent 1px)',
+        backgroundSize: '32px 32px',
+      }} />
+
+      <Link to="/" style={{
+        position: 'absolute', top: 24, left: 24,
+        display: 'flex', alignItems: 'center', gap: 6,
+        fontSize: 13, color: '#6B7280', textDecoration: 'none', fontWeight: 500, zIndex: 10,
+      }}>
+        <ArrowLeft size={15} /> Back to Home
+      </Link>
+
+      <div style={{ maxWidth: 440, width: '100%', position: 'relative' }}>
+        <div className="fade-in" style={{
+          background: '#FFFFFF', borderRadius: 16,
+          boxShadow: '0 4px 24px rgba(0,174,239,0.10)',
+          padding: 40, border: '1px solid #DBEAFE',
+        }}>
+          <div className="flex justify-center mb-6">
+            <img src={fuelTracksLogo} alt="Fuel Tracks" className="h-14 w-auto object-contain" style={{ maxWidth: '180px' }} />
+          </div>
+
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#1B3A6B', margin: '0 0 6px', textAlign: 'center' }}>
+            Welcome Back
+          </h1>
+          <p style={{ fontSize: 14, color: '#6B7280', margin: '0 0 28px', textAlign: 'center' }}>
+            Sign in to your Fuel Tracks account
+          </p>
+
+          {errors.general && (
+            <div style={{
+              background: 'rgba(232,25,44,0.06)', border: '1px solid rgba(232,25,44,0.2)',
+              borderRadius: 8, padding: '10px 14px', marginBottom: 20,
+              display: 'flex', alignItems: 'center', gap: 8, color: '#E8192C', fontSize: 13, fontWeight: 500,
+            }}>
+              <AlertCircle size={15} />{errors.general}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} noValidate>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#1B3A6B', marginBottom: 6 }}>
+                Employee ID or Email
+              </label>
+              <input id="employee-identifier" type="text" autoComplete="username"
+                placeholder="Enter your Employee ID or Email"
+                value={identifier} onChange={e => setIdentifier(e.target.value)}
+                disabled={loading} className={`input-field${errors.identifier ? ' error' : ''}`} />
+              <FieldError message={errors.identifier} />
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#1B3A6B', marginBottom: 6 }}>
+                Password
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input id="employee-password" type={showPw ? 'text' : 'password'}
+                  autoComplete="current-password" placeholder="Enter your password"
+                  value={password} onChange={e => setPassword(e.target.value)}
+                  disabled={loading} className={`input-field${errors.password ? ' error' : ''}`}
+                  style={{ paddingRight: 44 }} />
+                <button type="button" onClick={() => setShowPw(p => !p)} tabIndex={-1}
+                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', display: 'flex', alignItems: 'center', padding: 0 }}
+                  aria-label={showPw ? 'Hide password' : 'Show password'}>
+                  {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </div>
+              <FieldError message={errors.password} />
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#1B3A6B', marginBottom: 6 }}>
+                Daily Authentication Code
+              </label>
+              <input id="daily-code" type="text" inputMode="numeric" pattern="\d{4}" maxLength={4}
+                placeholder="Enter today's 4-digit code"
+                value={dailyCode} onChange={e => setDailyCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                disabled={loading} className={`input-field${errors.dailyCode ? ' error' : ''}`}
+                style={{ letterSpacing: '0.35em', fontSize: 18, fontWeight: 600, textAlign: 'center' }} />
+              <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: 5 }}>Contact your admin for today's code</p>
+              <FieldError message={errors.dailyCode} />
+            </div>
+
+            <button id="employee-signin-btn" type="submit" disabled={loading}
+              className="btn-primary" style={{ width: '100%', padding: '13px', fontSize: 15 }}>
+              {loading ? <><Loader2 size={17} style={{ animation: 'spin 0.7s linear infinite' }} /> Signing in…</> : 'Sign In'}
+            </button>
+
+            {showSlowWarning && (
+              <p style={{ fontSize: 12, textAlign: 'center', color: '#D97706', marginTop: 8 }}>
+                ⏳ Connecting to server, please wait...
+              </p>
+            )}
+          </form>
+
+          <p style={{ textAlign: 'center', marginTop: 20, fontSize: 13, color: '#6B7280' }}>
+            Admin?{' '}
+            <Link to="/login/admin" style={{ color: '#00AEEF', textDecoration: 'none', fontWeight: 600 }}>
+              Sign in here
+            </Link>
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}

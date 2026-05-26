@@ -1,0 +1,291 @@
+@import "tailwindcss";
+
+/* ─── Design Tokens ─────────────────────────────────────────── */
+@theme {
+  --color-brand-blue:   #00AEEF;
+  --color-brand-navy:   #1B3A6B;
+  --color-brand-red:    #E8192C;
+  --color-brand-light:  #F0F7FF;
+  --color-brand-white:  #FFFFFF;
+  --color-brand-gray:   #6B7280;
+  --color-brand-border: #DBEAFE;
+
+  --font-family-sans: 'Inter', system-ui, sans-serif;
+}
+
+/* ─── Base Styles ────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: #F0F7FF;
+  color: #1B3A6B;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Card Styles ────────────────────────────────────────────── */
+.card {
+  background: #FFFFFF;
+  border-radius: 0.75rem;
+  box-shadow: 0 2px 12px rgba(0, 174, 239, 0.08);
+}
+
+/* ─── Button Styles ──────────────────────────────────────────── */
+.btn-primary {
+  background-color: #00AEEF;
+  color: #FFFFFF;
+  border-radius: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.btn-primary:hover {
+  background-color: #1B3A6B;
+  box-shadow: 0 4px 14px rgba(0, 174, 239, 0.25);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: #00AEEF;
+  border: 1.5px solid #00AEEF;
+  border-radius: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.btn-secondary:hover {
+  background-color: #F0F7FF;
+  transform: translateY(-1px);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-navy {
+  background-color: transparent;
+  color: #1B3A6B;
+  border: 1.5px solid #1B3A6B;
+  border-radius: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.btn-navy:hover {
+  background-color: #1B3A6B;
+  color: #FFFFFF;
+  transform: translateY(-1px);
+}
+
+.btn-danger {
+  background-color: #E8192C;
+  color: #FFFFFF;
+  border-radius: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.btn-danger:hover {
+  background-color: #c01224;
+  transform: translateY(-1px);
+}
+
+/* ─── Input Styles ───────────────────────────────────────────── */
+.input-field {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 1.5px solid #DBEAFE;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-family: 'Inter', sans-serif;
+  color: #1B3A6B;
+  background-color: #FFFFFF;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-field::placeholder {
+  color: #9CA3AF;
+}
+
+.input-field:focus {
+  border-color: #00AEEF;
+  box-shadow: 0 0 0 3px rgba(0, 174, 239, 0.12);
+}
+
+.input-field.error {
+  border-color: #E8192C;
+  box-shadow: 0 0 0 3px rgba(232, 25, 44, 0.08);
+}
+
+/* ─── Badge Styles ───────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-blue {
+  background-color: rgba(0, 174, 239, 0.12);
+  color: #00AEEF;
+}
+
+.badge-navy {
+  background-color: rgba(27, 58, 107, 0.1);
+  color: #1B3A6B;
+}
+
+.badge-red {
+  background-color: rgba(232, 25, 44, 0.1);
+  color: #E8192C;
+}
+
+.badge-green {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: #059669;
+}
+
+.badge-gray {
+  background-color: rgba(107, 114, 128, 0.1);
+  color: #6B7280;
+}
+
+/* ─── Nav Link Styles ────────────────────────────────────────── */
+.nav-link {
+  position: relative;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #1B3A6B;
+  text-decoration: none;
+  padding: 0.25rem 0;
+  transition: color 0.2s ease;
+}
+
+.nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background-color: #00AEEF;
+  transition: width 0.2s ease;
+}
+
+.nav-link:hover {
+  color: #00AEEF;
+}
+
+.nav-link:hover::after {
+  width: 100%;
+}
+
+.nav-link.active {
+  color: #00AEEF;
+}
+
+.nav-link.active::after {
+  width: 100%;
+}
+
+/* ─── Spinner Animation ──────────────────────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  border-radius: 50%;
+  border-style: solid;
+  border-color: rgba(0, 174, 239, 0.2);
+  border-top-color: #00AEEF;
+  animation: spin 0.7s linear infinite;
+}
+
+/* ─── Fade In Animation ──────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+/* ─── Page Container ─────────────────────────────────────────── */
+.page-container {
+  padding-top: 64px; /* navbar height */
+  min-height: 100vh;
+  background-color: #F0F7FF;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F0F7FF;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #DBEAFE;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #00AEEF;
+}
