@@ -27,12 +27,14 @@ const AuditLog       = lazy(() => import('./pages/admin/AuditLog'))
 const AddAdmin       = lazy(() => import('./pages/admin/AddAdmin'))
 const DataExport     = lazy(() => import('./pages/admin/DataExport'))
 const AdminChangePassword = lazy(() => import('./pages/admin/AdminChangePassword'))
+const EmployeeProgress = lazy(() => import('./pages/admin/EmployeeProgress'))
 
 // Pages — Employee (lazy)
 const EmployeeDashboard  = lazy(() => import('./pages/employee/EmployeeDashboard'))
 const EmployeeProfile    = lazy(() => import('./pages/employee/EmployeeProfile'))
 const EmployeeHistory    = lazy(() => import('./pages/employee/EmployeeHistory'))
 const ChangePasswordPage = lazy(() => import('./pages/employee/ChangePasswordPage'))
+const DailyWorkUpdate    = lazy(() => import('./pages/employee/DailyWorkUpdate'))
 
 const ADMIN_ROLES    = ['admin', 'super_admin']
 const EMPLOYEE_ROLES = ['employee']
@@ -101,6 +103,7 @@ export default function App() {
               <Route path="daily-code"  element={<DailyCode />} />
               <Route path="audit-log"   element={<AuditLog />} />
               <Route path="export"      element={<DataExport />} />
+              <Route path="progress"    element={<EmployeeProgress />} />
               <Route path="change-password" element={<AdminChangePassword />} />
               <Route
                 path="add-admin"
@@ -125,6 +128,7 @@ export default function App() {
               <Route path="profile"     element={<EmployeeProfile />} />
               <Route path="history"     element={<EmployeeHistory />} />
               <Route path="password"    element={<ChangePasswordPage />} />
+              <Route path="work-update" element={<DailyWorkUpdate />} />
             </Route>
 
             {/* 404 catch-all */}

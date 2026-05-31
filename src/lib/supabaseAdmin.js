@@ -15,7 +15,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY
 
 if (!supabaseUrl) {
-  throw new Error('Missing VITE_SUPABASE_URL environment variable.')
+  console.warn('⚠️ Missing VITE_SUPABASE_URL environment variable.')
 }
 
 if (!supabaseServiceKey || supabaseServiceKey === 'your_service_role_key_here') {
@@ -24,9 +24,13 @@ if (!supabaseServiceKey || supabaseServiceKey === 'your_service_role_key_here') 
   )
 }
 
-export const adminSupabase = createClient(supabaseUrl, supabaseServiceKey || '', {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-})
+export const adminSupabase = createClient(
+  supabaseUrl || 'https://placeholder-project.supabase.co',
+  supabaseServiceKey || '',
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  }
+)

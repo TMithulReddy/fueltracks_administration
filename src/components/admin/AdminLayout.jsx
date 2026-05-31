@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, KeyRound, ClipboardList,
-  UserCircle, UserPlus, LogOut, Menu, X, Download, Lock,
+  UserCircle, UserPlus, LogOut, Menu, X, Download, Lock, BarChart3,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext'
@@ -54,6 +54,7 @@ export default function AdminLayout() {
     { to: '/admin/daily-code',    label: 'Daily Code',      Icon: KeyRound },
     { to: '/admin/audit-log',     label: 'Audit Log',       Icon: ClipboardList },
     { to: '/admin/export',        label: 'Export Data',     Icon: Download },
+    { to: '/admin/progress',      label: 'Progress',        Icon: BarChart3 },
     { to: '/admin/profile',       label: 'My Profile',      Icon: UserCircle },
     { to: '/admin/change-password', label: 'Change Password', Icon: Lock },
     ...(isSuperAdmin
