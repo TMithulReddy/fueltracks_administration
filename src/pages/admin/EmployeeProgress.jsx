@@ -236,6 +236,8 @@ export default function EmployeeProgress() {
   const pendingTodayCount = Math.max(0, totalEmployeesCount - submittedTodayCount)
 
   // Apply search query filter
+  const hasFilters = !!search.trim()
+
   const filteredSubmissions = submissions.filter(sub => {
     if (!search.trim()) return true
     const q = search.trim().toLowerCase()
