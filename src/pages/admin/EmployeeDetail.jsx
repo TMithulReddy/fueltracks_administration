@@ -26,6 +26,8 @@ import {
   FileText,
   DollarSign,
   ShieldAlert,
+  Download,
+  ClipboardList,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
@@ -100,6 +102,25 @@ export default function EmployeeDetail() {
     salary_effective_date: '',
   })
   const [salarySaving, setSalarySaving] = useState(false)
+
+  // ── Salary Breakdown State ──────────────────────────────────────────────────
+  const [salaryBreakdown, setSalaryBreakdown] = useState(null)
+  const [breakdownLoading, setBreakdownLoading] = useState(false)
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
+  const [selectedYear, setSelectedYear]   = useState(new Date().getFullYear())
+  const [overrideFields, setOverrideFields] = useState({
+    public_holidays: 0,
+    paid_leaves: 0,
+    working_days: 0,
+  })
+
+  // ── Work Progress State ───────────────────────────────────────────────────────
+  const [workProgress, setWorkProgress] = useState([])
+  const [progressLoading, setProgressLoading] = useState(true)
+  const [progressPage, setProgressPage] = useState(0)
+  const [progressTotal, setProgressTotal] = useState(0)
+  const [expandedSummaries, setExpandedSummaries] = useState(new Set())
+  const PROGRESS_PAGE_SIZE = 10
 
   // ── Documents State ──────────────────────────────────────────────────────────
   const [docSignedUrls, setDocSignedUrls] = useState({})
@@ -239,11 +260,61 @@ export default function EmployeeDetail() {
     setDocsChecked(true)
   }, [id])
 
+  // ── Fetch Work Progress ───────────────────────────────────────────────────────
+  const fetchWorkProgress = useCallback(async (pg = 0) => {
+    setProgressLoading(true)
+    try {
+      const { data, count, error } = await supabase
+        .from('daily_work_submissions')
+        .select('*', { count: 'exact' })
+        .eq('profile_id', id)
+        .order('submission_date', { ascending: false })
+        .range(
+          pg * PROGRESS_PAGE_SIZE,
+          (pg + 1) * PROGRESS_PAGE_SIZE - 1
+        )
+      if (!error) {
+        setWorkProgress(data ?? [])
+        setProgressTotal(count ?? 0)
+        setProgressPage(pg)
+      }
+    } finally {
+      setProgressLoading(false)
+    }
+  }, [id])
+
+  // ── Fetch Salary Breakdown ────────────────────────────────────────────────────
+  const fetchSalaryBreakdown = useCallback(async () => {
+    setBreakdownLoading(true)
+    try {
+      const { data, error } = await supabase.rpc('calculate_salary_breakdown', {
+        p_profile_id: id,
+        p_year:  selectedYear,
+        p_month: selectedMonth,
+      })
+      if (!error && data) {
+        setSalaryBreakdown(data)
+        setOverrideFields({
+          public_holidays: data.holidays ?? 0,
+          paid_leaves:   data.paid_leaves   ?? 0,
+          working_days:  data.working_days  ?? 0,
+        })
+      }
+    } finally {
+      setBreakdownLoading(false)
+    }
+  }, [id, selectedMonth, selectedYear])
+
+  useEffect(() => {
+    fetchSalaryBreakdown()
+  }, [fetchSalaryBreakdown])
+
   useEffect(() => {
     fetchEmployeeData()
     fetchLoginHistory(0)
     fetchDocumentUrls()
-  }, [fetchEmployeeData, fetchLoginHistory, fetchDocumentUrls])
+    fetchWorkProgress(0)
+  }, [fetchEmployeeData, fetchLoginHistory, fetchDocumentUrls, fetchWorkProgress])
 
   // ── Edit Form Handler ────────────────────────────────────────────────────────
   const handleInputChange = (e) => {
@@ -602,6 +673,15 @@ export default function EmployeeDetail() {
   const formatHours = (hrs) => { if (hrs === null || hrs === undefined) return '0.00 hrs'; return `${parseFloat(hrs).toFixed(2)} hrs` }
   const fmtLogTime = (ts) => { if (!ts) return '—'; try { return format(parseISO(ts), 'h:mm a') } catch { return ts } }
   const fmtLogDate = (ts) => { if (!ts) return '—'; try { return format(parseISO(ts), 'd MMM yyyy') } catch { return ts } }
+
+  const formatCurrency = (amount) => {
+    if (!amount && amount !== 0) return '—'
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 2,
+    }).format(amount)
+  }
 
   // ── Render Guards ────────────────────────────────────────────────────────────
   if (loading) {
@@ -1032,6 +1112,355 @@ export default function EmployeeDetail() {
                   value={detailObj.salary_amount != null ? `${detailObj.salary_currency || 'INR'} ${parseFloat(detailObj.salary_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'} />
                 <SalaryRow label="Currency" value={detailObj.salary_currency || '—'} />
                 <SalaryRow label="Effective Date" value={fmtJoinedDate(detailObj.salary_effective_date)} />
+
+                <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 14, marginTop: 4, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: '#6B7280', marginRight: 2 }}>View breakdown for:</span>
+                  <select value={selectedMonth} onChange={e => setSelectedMonth(parseInt(e.target.value))} id="salary-month-select"
+                    style={{ border: '1.5px solid #DBEAFE', borderRadius: 8, padding: '5px 10px', fontSize: 13, color: '#1B3A6B', background: '#FFFFFF', outline: 'none', fontFamily: 'Inter, sans-serif', cursor: 'pointer' }}>
+                    {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, idx) => (
+                      <option key={idx+1} value={idx+1}>{m}</option>
+                    ))}
+                  </select>
+                  <select value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))} id="salary-year-select"
+                    style={{ border: '1.5px solid #DBEAFE', borderRadius: 8, padding: '5px 10px', fontSize: 13, color: '#1B3A6B', background: '#FFFFFF', outline: 'none', fontFamily: 'Inter, sans-serif', cursor: 'pointer' }}>
+                    {[0, 1, 2].map(offset => {
+                      const y = new Date().getFullYear() - offset
+                      return <option key={y} value={y}>{y}</option>
+                    })}
+                  </select>
+                </div>
+
+                {breakdownLoading ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                    {[1, 2, 3, 4].map(i => (
+                      <div key={i} style={{ height: 32, borderRadius: 8, background: '#E5E7EB', animation: 'sb-pulse 1.5s ease-in-out infinite' }} />
+                    ))}
+                    <style>{`
+                      @keyframes sb-pulse {
+                        0%, 100% { opacity: 1; }
+                        50% { opacity: 0.4; }
+                      }
+                    `}</style>
+                  </div>
+                ) : salaryBreakdown ? (() => {
+                  const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate()
+                  let sundays = 0
+                  for (let d = 1; d <= daysInMonth; d++) {
+                    if (new Date(selectedYear, selectedMonth - 1, d).getDay() === 0) sundays++
+                  }
+
+                  const publicHolidays = Math.max(0, Number(overrideFields.public_holidays) || 0)
+                  const generalWorkingDays = Math.max(1, daysInMonth - sundays - publicHolidays)
+                  const paidLeaves = Math.max(0, Number(overrideFields.paid_leaves) || 0)
+                  const daysPresent = Math.max(0, Number(overrideFields.working_days) || 0)
+
+                  const monthlySalary = salaryBreakdown.monthly_salary ?? 0
+                  const perDayRate = monthlySalary / generalWorkingDays
+                  const absentDays = Math.max(0, generalWorkingDays - daysPresent - paidLeaves)
+                  const deduction = perDayRate * absentDays
+                  const netPayable = monthlySalary - deduction
+
+                  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+                  const inputStyle = {
+                    width: 64,
+                    textAlign: 'center',
+                    fontSize: 13,
+                    border: '1.5px solid #DBEAFE',
+                    borderRadius: 8,
+                    padding: '3px 6px',
+                    fontFamily: 'Inter, sans-serif',
+                    color: '#1B3A6B',
+                    outline: 'none',
+                    background: '#F8FBFF'
+                  }
+
+                  const handleFieldChange = (field, val) => {
+                    const parsed = parseInt(val)
+                    setOverrideFields(prev => ({
+                      ...prev,
+                      [field]: isNaN(parsed) ? '' : Math.max(0, parsed)
+                    }))
+                  }
+
+                  return (
+                    <div style={{ marginTop: 4 }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: '#1B3A6B', margin: '0 0 10px' }}>
+                        Salary Breakdown — {monthNames[selectedMonth - 1]} {selectedYear}
+                      </p>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
+                        <div style={{ background: '#F0F7FF', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#1B3A6B' }}>{generalWorkingDays}</p>
+                          <p style={{ margin: '3px 0 0', fontSize: 11, color: '#6B7280' }}>Working Days</p>
+                        </div>
+                        <div style={{ background: '#F0FFF4', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                          <input type="number" min="0" max={generalWorkingDays} value={overrideFields.working_days}
+                            onChange={e => handleFieldChange('working_days', e.target.value)}
+                            style={{ ...inputStyle, fontSize: 20, fontWeight: 700, width: '80%', padding: '2px 4px', color: daysPresent >= generalWorkingDays * 0.8 ? '#16A34A' : daysPresent >= generalWorkingDays * 0.6 ? '#D97706' : '#E8192C' }}
+                            id="override-working-days"
+                          />
+                          <p style={{ margin: '3px 0 0', fontSize: 11, color: '#6B7280' }}>Days Present</p>
+                        </div>
+                        <div style={{ background: '#FFF7F7', borderRadius: 10, padding: '10px 8px', textAlign: 'center' }}>
+                          <p style={{ margin: 0, fontSize: 20, fontWeight: 700, color: absentDays > 0 ? '#E8192C' : '#16A34A' }}>{absentDays}</p>
+                          <p style={{ margin: '3px 0 0', fontSize: 11, color: '#6B7280' }}>Absent Days</p>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>Monthly Salary (CTC)</span>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: '#1B3A6B' }}>{formatCurrency(monthlySalary)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>Total Days in Month</span>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: '#1B3A6B' }}>{daysInMonth} days</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>Sundays (Auto)</span>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: '#6B7280' }}>{sundays} days</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>Public Holidays</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <input type="number" min="0" max="15" value={overrideFields.public_holidays}
+                              onChange={e => handleFieldChange('public_holidays', e.target.value)} style={inputStyle}
+                              id="override-public-holidays"
+                            />
+                            <span style={{ fontSize: 13, color: '#6B7280' }}>days</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>General Working Days</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#1B3A6B' }}>{generalWorkingDays} days</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>Per Day Rate (÷{generalWorkingDays})</span>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: '#1B3A6B' }}>{formatCurrency(perDayRate)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>Paid Leaves (no deduction)</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <input type="number" min="0" max="31" value={overrideFields.paid_leaves}
+                              onChange={e => handleFieldChange('paid_leaves', e.target.value)} style={inputStyle}
+                              id="override-paid-leaves"
+                            />
+                            <span style={{ fontSize: 13, color: '#6B7280' }}>days</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>Days Present</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <input type="number" min="0" max={generalWorkingDays} value={overrideFields.working_days}
+                              onChange={e => handleFieldChange('working_days', e.target.value)}
+                              style={{ ...inputStyle, color: daysPresent >= generalWorkingDays * 0.8 ? '#16A34A' : '#1B3A6B' }}
+                              id="override-days-present"
+                            />
+                            <span style={{ fontSize: 13, color: '#6B7280' }}>days</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>Absent Days (deductible)</span>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: absentDays > 0 ? '#E8192C' : '#1B3A6B' }}>{absentDays} days</span>
+                        </div>
+                        {deduction > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                            <span style={{ fontSize: 13, color: '#6B7280' }}>Deduction</span>
+                            <span style={{ fontSize: 13, fontWeight: 500, color: '#E8192C' }}>- {formatCurrency(deduction)}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ background: '#F0F7FF', borderRadius: 10, padding: '10px 14px', marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1B3A6B' }}>Net Payable This Month</span>
+                        <span style={{ fontSize: 17, fontWeight: 700, color: '#00AEEF' }}>{formatCurrency(netPayable)}</span>
+                      </div>
+                      <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 12px', marginTop: 10, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                        <Info size={14} color="#D97706" style={{ flexShrink: 0, marginTop: 1 }} />
+                        <p style={{ margin: 0, fontSize: 11, color: '#92400E', lineHeight: 1.6 }}>
+                          General working days = {daysInMonth} (total) − {sundays} (Sundays) − {publicHolidays} (holidays) = {generalWorkingDays}. Sundays and public holidays are not deductible. Paid leaves ({paidLeaves}) are compensated. Changes are for preview only and not saved.
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })() : null}
+              </div>
+            )}
+          </div>
+
+          {/* Card 6: Work Progress */}
+          <div style={{ background: '#FFFFFF', borderRadius: 16, border: '1px solid #DBEAFE', boxShadow: '0 2px 12px rgba(0,174,239,0.08)', padding: 24, marginTop: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <ClipboardList size={18} color="#00AEEF" />
+                  <span style={{ fontSize: 15, fontWeight: 600, color: '#1B3A6B' }}>Work Progress</span>
+                </div>
+                <p style={{ margin: '3px 0 0 26px', fontSize: 12, color: '#9CA3AF' }}>
+                  {progressTotal} total submission{progressTotal === 1 ? '' : 's'}
+                </p>
+              </div>
+              {progressLoading && <Loader2 size={16} color="#9CA3AF" style={{ animation: 'spin 0.7s linear infinite' }} />}
+            </div>
+
+            {progressLoading && workProgress.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[1, 2, 3].map(i => (
+                  <div key={i} style={{ height: 64, borderRadius: 8, background: '#E5E7EB', animation: 'wp-pulse 1.5s ease-in-out infinite' }} />
+                ))}
+                <style>{`
+                  @keyframes wp-pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.4; }
+                  }
+                `}</style>
+              </div>
+            ) : workProgress.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                <Briefcase size={36} color="#D1D5DB" style={{ marginBottom: 8 }} />
+                <p style={{ margin: 0, fontSize: 14, color: '#9CA3AF', fontWeight: 500 }}>No submissions yet</p>
+                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#9CA3AF' }}>This employee has not submitted any work updates</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {workProgress.map(row => {
+                  const isExpanded = expandedSummaries.has(row.id)
+                  const workDesc = row.work_description || ''
+                  const isLong = workDesc.length > 150
+                  const displayDesc = isLong && !isExpanded
+                    ? workDesc.slice(0, 150) + '…'
+                    : workDesc
+
+                  let dateLabel = '—'
+                  let timeLabel = '—'
+                  try {
+                    if (row.submission_date) {
+                      dateLabel = format(new Date(row.submission_date + 'T00:00:00'), 'EEEE, d MMMM yyyy')
+                    }
+                    if (row.created_at) {
+                      timeLabel = format(parseISO(row.created_at), 'd MMM, h:mm a')
+                    }
+                  } catch {}
+
+                  const handleDownload = () => {
+                    const formattedDate = format(new Date(row.submission_date + 'T00:00:00'), 'EEEE, d MMMM yyyy')
+                    const formattedTime = format(parseISO(row.created_at), 'd MMM, h:mm a')
+                    const content = [
+                      'FUEL TRACKS — Work Submission',
+                      '==============================',
+                      '',
+                      `Employee: ${employee?.full_name}`,
+                      `ID: ${employee?.employee_id}`,
+                      `Date: ${formattedDate}`,
+                      `Submitted: ${formattedTime}`,
+                      '',
+                      'WORK DONE:',
+                      workDesc,
+                      '',
+                      row.issues_faced ? 'ISSUES FACED:' : '',
+                      row.issues_faced ?? ''
+                    ].join('\n')
+
+                    const blob = new Blob([content], { type: 'text/plain' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `${employee?.employee_id}_${row.submission_date}_work.txt`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }
+
+                  return (
+                    <div key={row.id} style={{ background: '#FFFFFF', border: '1px solid #F3F4F6', borderRadius: 12, padding: 14 }}>
+                      {/* Top row */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                        <div>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#1B3A6B' }}>
+                            {dateLabel}
+                          </p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
+                            <Clock size={11} color="#9CA3AF" />
+                            <span style={{ fontSize: 11, color: '#9CA3AF' }}>Submitted at {timeLabel}</span>
+                          </div>
+                        </div>
+                        <div style={{ flexShrink: 0 }}>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            background: '#DCFCE7', color: '#16A34A', fontSize: 11,
+                            borderRadius: 9999, padding: '2px 8px', fontWeight: 600
+                          }}>
+                            <CheckCircle size={11} /> Submitted
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Work Description */}
+                      <div style={{ marginTop: 8 }}>
+                        <p style={{ margin: 0, fontSize: 11, color: '#9CA3AF', fontWeight: 'bold', textTransform: 'uppercase' }}>Work Done</p>
+                        <p style={{ margin: '4px 0 0', fontSize: 13, color: '#4B5563', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                          {displayDesc}
+                        </p>
+                        {isLong && (
+                          <span onClick={() => setExpandedSummaries(prev => {
+                            const next = new Set(prev)
+                            if (isExpanded) next.delete(row.id)
+                            else next.add(row.id)
+                            return next
+                          })}
+                            style={{ fontSize: 11, color: '#00AEEF', cursor: 'pointer', display: 'inline-block', marginTop: 2 }}>
+                            {isExpanded ? 'Show less' : 'Show more'}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Issues Faced */}
+                      {row.issues_faced && (
+                        <div style={{ marginTop: 8 }}>
+                          <p style={{ margin: 0, fontSize: 11, color: '#E8192C', fontWeight: 'bold', textTransform: 'uppercase' }}>Issues Faced</p>
+                          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#DC2626', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                            {row.issues_faced}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Download button */}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                        <button onClick={handleDownload}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 5,
+                            background: '#F0F7FF', color: '#00AEEF', fontSize: 12,
+                            borderRadius: 8, padding: '6px 12px', border: '1px solid #DBEAFE',
+                            cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: 500
+                          }}>
+                          <Download size={12} /> Download
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {!progressLoading && progressTotal > PROGRESS_PAGE_SIZE && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+                <span style={{ fontSize: 12, color: '#6B7280' }}>
+                  Showing {progressPage * PROGRESS_PAGE_SIZE + 1}–{Math.min(progressTotal, (progressPage + 1) * PROGRESS_PAGE_SIZE)} of {progressTotal} submissions
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button onClick={() => fetchWorkProgress(progressPage - 1)} disabled={progressPage === 0}
+                    style={{ background: 'none', border: '1px solid #DBEAFE', borderRadius: 6, padding: '4px 8px', cursor: progressPage === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', opacity: progressPage === 0 ? 0.4 : 1 }}
+                    id="wp-prev-page">
+                    <ChevronLeft size={14} color="#1B3A6B" />
+                  </button>
+                  <span style={{ fontSize: 12, color: '#1B3A6B', fontWeight: 600, margin: '0 8px' }}>
+                    Page {progressPage + 1} of {Math.ceil(progressTotal / PROGRESS_PAGE_SIZE)}
+                  </span>
+                  <button onClick={() => fetchWorkProgress(progressPage + 1)} disabled={progressPage >= Math.ceil(progressTotal / PROGRESS_PAGE_SIZE) - 1}
+                    style={{ background: 'none', border: '1px solid #DBEAFE', borderRadius: 6, padding: '4px 8px', cursor: progressPage >= Math.ceil(progressTotal / PROGRESS_PAGE_SIZE) - 1 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', opacity: progressPage >= Math.ceil(progressTotal / PROGRESS_PAGE_SIZE) - 1 ? 0.4 : 1 }}
+                    id="wp-next-page">
+                    <ChevronRight size={14} color="#1B3A6B" />
+                  </button>
+                </div>
               </div>
             )}
           </div>

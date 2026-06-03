@@ -158,7 +158,36 @@ export default function DailyCode() {
         }
       }
 
-      toast.success("Today's authentication code has been set!")
+      // Send email notification to all employees
+      try {
+        const enteredCode = manualCode
+        const { data: { session } } = 
+          await supabase.auth.getSession()
+        
+        await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-daily-code-email`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session?.access_token}`,
+              'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
+            },
+            body: JSON.stringify({
+              code: enteredCode,
+              valid_date: new Date().toISOString().split('T')[0]
+            })
+          }
+        )
+        toast.success('Code set and email sent to all admins!')
+      } catch (emailErr) {
+        // Email failed but code is set — show partial success
+        console.error('[Email]', emailErr)
+        toast.success('Code set successfully.')
+        toast.error('Email notification failed. Check edge function deployment.',
+                     { duration: 5000 })
+      }
+
       setManualCode('')
       setCodeRevealed(false)
       await fetchData()

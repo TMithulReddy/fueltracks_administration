@@ -2,13 +2,16 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Shield, Info, Eye, EyeOff, RefreshCw, UserPlus,
-  CheckCircle, XCircle, AlertCircle, Loader2, Check, X
+  CheckCircle, XCircle, AlertCircle, Loader2, Check, X,
+  Mail, Phone, Calendar
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { adminSupabase } from '../../lib/supabaseAdmin'
 import { validatePassword } from '../../utils/passwordValidator'
+import Avatar from '../../components/shared/Avatar'
+import { format, parseISO } from 'date-fns'
 
 /* ── Password strength pill ───────────────────────────────────── */
 function Pill({ met, label }) {
@@ -55,6 +58,11 @@ export default function AddAdmin() {
   // Success state
   const [successData, setSuccessData]   = useState(null) // { name, email, id }
 
+  // Admin list state
+  const [adminList, setAdminList]           = useState([])
+  const [adminCount, setAdminCount]         = useState(0)
+  const [adminListLoading, setAdminListLoading] = useState(true)
+
   // Password strength booleans
   const has8      = password.length >= 8
   const hasUpper  = /[A-Z]/.test(password)
@@ -79,8 +87,27 @@ export default function AddAdmin() {
     }
   }
 
+  const fetchAdminList = async () => {
+    setAdminListLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, employee_id, full_name, email, phone, role, is_online, avatar_url, created_at')
+        .eq('role', 'admin')
+        .order('employee_id', { ascending: true })
+      if (error) throw error
+      setAdminList(data ?? [])
+      setAdminCount((data ?? []).length)
+    } catch (err) {
+      console.error('Error fetching admin list:', err)
+    } finally {
+      setAdminListLoading(false)
+    }
+  }
+
   useEffect(() => {
     fetchNextAdminId()
+    fetchAdminList()
   }, [])
 
   async function handleSubmit(e) {
@@ -185,8 +212,9 @@ export default function AddAdmin() {
           if (error) console.error('[Audit Log] Failed to write:', error)
         })
 
-      // Step 9: Show success state
+      // Step 9: Show success state & refresh admin list
       setSuccessData({ name: fullName.trim(), email: email.trim().toLowerCase(), id: finalId })
+      fetchAdminList()
     } catch (err) {
       toast.error(err.message ?? 'Failed to create admin account.')
     } finally {
@@ -286,6 +314,9 @@ export default function AddAdmin() {
             </div>
           </div>
         </div>
+
+        {/* Admin List Section */}
+        <AdminListSection adminList={adminList} adminCount={adminCount} adminListLoading={adminListLoading} />
       </div>
     )
   }
@@ -293,6 +324,7 @@ export default function AddAdmin() {
   /* ── Main Form ──────────────────────────────────────────────── */
   return (
     <div>
+      {/* (rest of form below – admin list appended at bottom) */}
       {/* Page Header */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: '#1B3A6B', margin: 0 }}>Add Administrator</h1>
@@ -517,6 +549,154 @@ export default function AddAdmin() {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+
+      {/* Admin List Section */}
+      <AdminListSection adminList={adminList} adminCount={adminCount} adminListLoading={adminListLoading} />
+    </div>
+  )
+}
+
+/* ── Admin List Section ─────────────────────────────────────────── */
+function AdminListSection({ adminList, adminCount, adminListLoading }) {
+  return (
+    <div>
+      {/* Divider */}
+      <div style={{ borderTop: '1px solid #DBEAFE', margin: '32px 0' }} />
+
+      {/* Section header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1B3A6B', margin: 0 }}>
+            Current Administrators
+          </h2>
+          <p style={{ fontSize: 14, color: '#6B7280', margin: '4px 0 0' }}>
+            All admins excluding Super Admin
+          </p>
+        </div>
+        <span style={{
+          background: '#EFF6FF', color: '#00AEEF', fontWeight: 600,
+          fontSize: 14, borderRadius: 9999, padding: '4px 12px',
+        }}>
+          {adminCount} {adminCount === 1 ? 'Admin' : 'Admins'}
+        </span>
+      </div>
+
+      {/* Cards grid */}
+      {adminListLoading ? (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+          gap: 16, marginTop: 24,
+        }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} style={{
+              background: '#F3F4F6', borderRadius: 16, padding: 20,
+              height: 180, animation: 'pulse 1.5s ease-in-out infinite',
+            }} />
+          ))}
+        </div>
+      ) : adminList.length === 0 ? (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', padding: '48px 0', gap: 12,
+        }}>
+          <Shield size={48} color="#D1D5DB" />
+          <p style={{ fontSize: 16, fontWeight: 600, color: '#6B7280', margin: 0 }}>
+            No additional admins yet
+          </p>
+          <p style={{ fontSize: 14, color: '#9CA3AF', margin: 0 }}>
+            Use the form above to add your first admin.
+          </p>
+        </div>
+      ) : (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+          gap: 16, marginTop: 24,
+        }}>
+          {adminList.map(admin => (
+            <AdminCard key={admin.id} admin={admin} />
+          ))}
+        </div>
+      )}
+
+      {/* Pulse keyframe */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+/* ── Single Admin Card ──────────────────────────────────────────── */
+function AdminCard({ admin }) {
+  const memberSince = (() => {
+    try { return format(parseISO(admin.created_at), 'd MMM yyyy') }
+    catch { return '—' }
+  })()
+
+  return (
+    <div style={{
+      background: '#FFFFFF', borderRadius: 16, padding: 20,
+      border: '1px solid #DBEAFE',
+      boxShadow: '0 2px 12px rgba(0,174,239,0.06)',
+    }}>
+      {/* Top row: avatar + online badge */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <Avatar size="md" src={admin.avatar_url} name={admin.full_name} online={admin.is_online} />
+        <span style={{
+          fontSize: 12, borderRadius: 9999, padding: '2px 8px',
+          background: admin.is_online ? '#DCFCE7' : '#F3F4F6',
+          color: admin.is_online ? '#16A34A' : '#6B7280',
+          fontWeight: 500,
+        }}>
+          {admin.is_online ? '● Online' : '● Offline'}
+        </span>
+      </div>
+
+      {/* Middle: name, ID, role badge */}
+      <div style={{ marginTop: 12 }}>
+        <p style={{ fontSize: 15, fontWeight: 600, color: '#1B3A6B', margin: 0 }}>
+          {admin.full_name}
+        </p>
+        <p style={{ fontSize: 12, color: '#00AEEF', fontFamily: 'monospace', margin: '2px 0 0', fontWeight: 600 }}>
+          {admin.employee_id}
+        </p>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          background: '#EFF6FF', color: '#1B3A6B', fontSize: 12,
+          borderRadius: 9999, padding: '2px 8px', marginTop: 4,
+          fontWeight: 500,
+        }}>
+          <Shield size={10} />
+          Admin
+        </span>
+      </div>
+
+      {/* Bottom: email, phone, member since */}
+      <div style={{ borderTop: '1px solid #F3F4F6', marginTop: 12, paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Mail size={12} color="#9CA3AF" style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {admin.email}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Phone size={12} color="#9CA3AF" style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: '#6B7280' }}>
+            {admin.phone || 'Not set'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Calendar size={12} color="#9CA3AF" style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: '#6B7280' }}>
+            {memberSince}
+          </span>
         </div>
       </div>
     </div>

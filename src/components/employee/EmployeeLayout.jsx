@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, UserCircle, Clock, Lock, LogOut, Menu, X, FileText,
+  LayoutDashboard, UserCircle, Clock, Lock, LogOut, Menu, X, FileText, ClipboardList,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext'
@@ -49,7 +49,7 @@ export default function EmployeeLayout() {
     { to: '/employee',          label: 'Dashboard',       Icon: LayoutDashboard, end: true },
     { to: '/employee/profile',  label: 'My Profile',      Icon: UserCircle },
     { to: '/employee/history',  label: 'History',         Icon: Clock },
-    { to: '/employee/work-update', label: 'Work Update',  Icon: FileText },
+    { to: '/employee/work-update', label: 'My Progress',  Icon: ClipboardList },
     { to: '/employee/password', label: 'Change Password', Icon: Lock },
   ]
 

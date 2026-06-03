@@ -1,0 +1,1 @@
+var e=async(e,t,n=3600)=>{if(!t)return null;let{data:r,error:i}=await e.storage.from(`employee-documents`).createSignedUrl(t,n);return i?null:r?.signedUrl??null};export{e as t};

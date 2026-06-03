@@ -1,0 +1,65 @@
+Created At: 2026-06-03T10:34:36Z
+Completed At: 2026-06-03T10:34:36Z
+File Path: `file:///c:/Users/mithu/Desktop/fueltracks_ad/recovered_detail.txt`
+Total Lines: 76
+Total Bytes: 4193
+Showing lines 1 to 76
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: Created At: 2026-06-03T06:58:41Z
+2: Completed At: 2026-06-03T06:58:42Z
+3: File Path: `file:///c:/Users/mithu/Desktop/fueltracks_ad/src/pages/admin/EmployeeDetail.jsx`
+4: Total Lines: 1439
+5: Total Bytes: 74470
+6: Showing lines 54 to 120
+7: The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+8: 54: ]
+9: 55: 
+10: 56: export default function EmployeeDetail() {
+11: 57:   const { id } = useParams()
+12: 58:   const navigate = useNavigate()
+13: 59:   const { user: currentAdminUser, profile: currentAdminProfile } = useAuth()
+14: 60: 
+15: 61:   // ── Core State ──────────────────────────────────────────────────────────────
+16: 62:   const [employee, setEmployee] = useState(null)
+17: 63:   const [loading, setLoading] = useState(true)
+18: 64:   const [error, setError] = useState('')
+19: 65:   const [editMode, setEditMode] = useState(false)
+20: 66:   const [analytics, setAnalytics] = useState({ totalDays: 0, totalHours: 0 })
+21: 67: 
+22: 68:   // Login History
+23: 69:   const [history, setHistory] = useState([])
+24: 70:   const [historyLoading, setHistoryLoading] = useState(true)
+25: 71:   const [historyCount, setHistoryCount] = useState(0)
+26: 72:   const [historyPage, setHistoryPage] = useState(0)
+27: 73: 
+28: 74:   // Modals
+29: 75:   const [s
+<truncated 920 bytes>
+50: 96: 
+51: 97:   // ── Salary State ─────────────────────────────────────────────────────────────
+52: 98:   const [salaryEditMode, setSalaryEditMode] = useState(false)
+53: 99:   const [salaryForm, setSalaryForm] = useState({
+54: 100:     salary_amount: '',
+55: 101:     salary_currency: 'INR',
+56: 102:     salary_effective_date: '',
+57: 103:   })
+58: 104:   const [salarySaving, setSalarySaving] = useState(false)
+59: 105: 
+60: 106:   // ── Documents State ──────────────────────────────────────────────────────────
+61: 107:   const [docSignedUrls, setDocSignedUrls] = useState({})
+62: 108:   const [docUploading, setDocUploading] = useState({})
+63: 109:   const [docDeleting, setDocDeleting] = useState({})
+64: 110:   const [docsChecked, setDocsChecked] = useState(false)
+65: 111:   const fileInputRefs = useRef({})
+66: 112: 
+67: 113:   // ── Work Progress State ───────────────────────────────────────────────────────
+68: 114:   const [workProgress, setWorkProgress] = useState([])
+69: 115:   const [progressLoading, setProgressLoading] = useState(true)
+70: 116:   const [progressPage, setProgressPage] = useState(0)
+71: 117:   const [progressTotal, setProgressTotal] = useState(0)
+72: 118:   const [viewingAttachment, setViewingAttachment] = useState(null)
+73: 119:   const [expandedSummaries, setExpandedSummaries] = useState(new Set())
+74: 120:   const PROGRESS_PAGE_SIZE = 10
+75: The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+76: 
+The above content shows the entire, complete file contents of the requested file.

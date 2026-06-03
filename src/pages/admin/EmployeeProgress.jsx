@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Search, ChevronLeft, ChevronRight, FileText, X,
-  AlertCircle, Calendar, Clock, Eye, Users, ClipboardCheck, TrendingUp, Paperclip, ChevronDown
+  AlertCircle, Calendar, Clock, Eye, Users, ClipboardCheck, TrendingUp, Paperclip, ChevronDown,
+  AlertTriangle, CheckCircle
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { supabase } from '../../lib/supabase'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
+import Avatar from '../../components/shared/Avatar'
 
 /* ── Format helpers ──────────────────────────────────────────── */
 function fmtDateTime(ts) {
@@ -180,6 +182,7 @@ export default function EmployeeProgress() {
   // DB Data
   const [submissions, setSubmissions] = useState([])
   const [employees, setEmployees]     = useState([])
+  const [recentSubmissions, setRecentSubmissions] = useState([])
   const [loading, setLoading]         = useState(true)
   const [error, setError]             = useState('')
 
@@ -193,9 +196,15 @@ export default function EmployeeProgress() {
       // 1. Fetch active employees to calculate stats properly
       const { data: emps, error: empErr } = await supabase
         .from('profiles')
-        .select('id, full_name, employee_id, avatar_url, role')
+        .select(`
+          id, full_name, employee_id, avatar_url, role,
+          details:employee_details!profile_id(
+            department
+          )
+        `)
         .eq('role', 'employee')
         .eq('is_active', true)
+        .order('employee_id', { ascending: true })
 
       if (empErr) throw empErr
       setEmployees(emps ?? [])
@@ -214,6 +223,23 @@ export default function EmployeeProgress() {
       // Filter just in case
       const empSubs = (subs ?? []).filter(s => s.profile?.role === 'employee')
       setSubmissions(empSubs)
+
+      // 3. Fetch submissions for the last 4 days pending check
+      const todayDate = new Date()
+      const daysList = []
+      for (let i = 0; i < 4; i++) {
+        const d = new Date(todayDate)
+        d.setDate(todayDate.getDate() - i)
+        daysList.push(d.toISOString().split('T')[0])
+      }
+
+      const { data: recentSubs, error: recentErr } = await supabase
+        .from('daily_work_submissions')
+        .select('profile_id, submission_date')
+        .in('submission_date', daysList)
+
+      if (recentErr) throw recentErr
+      setRecentSubmissions(recentSubs ?? [])
     } catch (err) {
       console.error(err)
       setError(err.message ?? 'Failed to load progress data.')
@@ -262,6 +288,50 @@ export default function EmployeeProgress() {
       return selectedDate
     }
   }
+
+  // Calculate days for the last 4 days
+  const today = new Date()
+  const days = []
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(today)
+    d.setDate(today.getDate() - i)
+    days.push(d.toISOString().split('T')[0])
+  }
+
+  // Today pending logic: do not show today as pending if current time is before 6:30 PM IST.
+  const nowIST = new Date(
+    new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
+  )
+  const isAfterOfficeHours = 
+    nowIST.getHours() > 18 || 
+    (nowIST.getHours() === 18 && nowIST.getMinutes() >= 30)
+
+  const daysToCheck = isAfterOfficeHours 
+    ? days           // include today
+    : days.slice(1)  // exclude today (index 0)
+
+  // Build set of submitted keys
+  const submittedSet = new Set(
+    (recentSubmissions ?? []).map(s => 
+      `${s.profile_id}|${s.submission_date}`
+    )
+  )
+
+  // Find pending per employee
+  const pendingMap = {}
+  employees.forEach(emp => {
+    const missingDays = daysToCheck.filter(day =>
+      !submittedSet.has(`${emp.id}|${day}`)
+    )
+    if (missingDays.length > 0) {
+      pendingMap[emp.id] = {
+        employee: emp,
+        missingDays
+      }
+    }
+  })
+
+  const pendingList = Object.values(pendingMap)
 
   return (
     <div className="fade-in">
@@ -677,6 +747,147 @@ export default function EmployeeProgress() {
           </div>
         )}
       </div>
+
+      {/* Pending Submissions Section */}
+      <hr style={{ border: 'none', borderTop: '1px solid #DBEAFE', margin: '32px 0' }} />
+
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '20px',
+        flexWrap: 'wrap',
+        gap: '12px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <AlertTriangle size={20} color="#E8192C" />
+          <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#1B3A6B', marginLeft: '8px', margin: 0 }}>
+            Pending Submissions
+          </h2>
+        </div>
+        <div style={{
+          background: 'rgba(232,25,44,0.1)',
+          color: '#E8192C',
+          fontWeight: 600,
+          fontSize: '14px',
+          borderRadius: '9999px',
+          padding: '4px 12px',
+        }}>
+          {pendingList.length} {pendingList.length === 1 ? 'employee' : 'employees'}
+        </div>
+      </div>
+
+      {pendingList.length === 0 ? (
+        <div style={{
+          background: '#F0FFF4',
+          border: '1px solid #BBF7D0',
+          borderRadius: '12px',
+          padding: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+        }}>
+          <CheckCircle size={20} color="#16A34A" style={{ flexShrink: 0 }} />
+          <p style={{ fontSize: '14px', color: '#16A34A', margin: 0, fontWeight: 500 }}>
+            All employees have submitted their work for the last 4 days
+          </p>
+        </div>
+      ) : (
+        <div style={{
+          background: '#FFFFFF',
+          borderRadius: '12px',
+          overflow: 'hidden',
+          border: '1px solid #DBEAFE',
+          boxShadow: '0 4px 20px rgba(0,174,239,0.04)',
+        }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
+              <thead>
+                <tr style={{ background: '#F8FAFF' }}>
+                  {['EMPLOYEE', 'ID', 'DEPARTMENT', 'MISSING DATES', 'STATUS'].map(h => (
+                    <th key={h} style={{
+                      padding: '12px 16px',
+                      textAlign: 'left',
+                      fontSize: '12px',
+                      color: '#6B7280',
+                      textTransform: 'uppercase',
+                      fontWeight: 600,
+                      borderBottom: '1px solid #DBEAFE',
+                      whiteSpace: 'nowrap',
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pendingList.map(({ employee: emp, missingDays }) => {
+                  const dept = emp.details?.[0]?.department ?? emp.details?.department ?? '—'
+                  return (
+                    <tr key={emp.id}
+                      style={{ borderBottom: '1px solid #F3F4F6', transition: 'background 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#F8FAFF'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      {/* Employee name with Avatar */}
+                      <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <Avatar size="sm" src={emp.avatar_url} name={emp.full_name} />
+                          <span style={{ fontSize: '14px', fontWeight: 500, color: '#1B3A6B' }}>
+                            {emp.full_name}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* ID */}
+                      <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: '12px', color: '#00AEEF', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                          {emp.employee_id}
+                        </span>
+                      </td>
+
+                      {/* Department */}
+                      <td style={{ padding: '12px 16px', fontSize: '14px', color: '#6B7280', whiteSpace: 'nowrap' }}>
+                        {dept}
+                      </td>
+
+                      {/* Missing Dates */}
+                      <td style={{ padding: '12px 16px' }}>
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                          {missingDays.map(day => (
+                            <span key={day} style={{
+                              background: 'rgba(232,25,44,0.08)',
+                              color: '#E8192C',
+                              fontSize: '12px',
+                              borderRadius: '9999px',
+                              padding: '2px 8px',
+                              whiteSpace: 'nowrap',
+                            }}>
+                              {format(parseISO(day), 'd MMM')}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                        <span style={{
+                          background: 'rgba(232,25,44,0.1)',
+                          color: '#E8192C',
+                          fontSize: '12px',
+                          borderRadius: '9999px',
+                          padding: '4px 8px',
+                          fontWeight: 600,
+                        }}>
+                          Pending
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Detail modal */}
       {selectedSub && (
