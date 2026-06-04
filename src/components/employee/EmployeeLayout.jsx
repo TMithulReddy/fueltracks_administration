@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, UserCircle, Clock, Lock, LogOut, Menu, X, FileText, ClipboardList,
@@ -6,6 +6,7 @@ import {
 import toast from 'react-hot-toast'
 import { useAuth } from '../../context/AuthContext'
 import Avatar from '../shared/Avatar'
+import { supabase } from '../../lib/supabase'
 
 function SidebarLink({ to, label, Icon, end = false }) {
   const [hovered, setHovered] = useState(false)
@@ -44,6 +45,63 @@ export default function EmployeeLayout() {
 
   const profileDetails = (Array.isArray(profile?.details) ? profile.details[0] : profile?.details) || {}
   const department = profileDetails.department || profile?.department || null
+
+  const [sessionExpired, setSessionExpired] = useState(false)
+
+  useEffect(() => {
+    if (!profile?.id) return
+
+    const checkSession = async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('is_online')
+        .eq('id', profile.id)
+        .maybeSingle()
+      
+      if (data && data.is_online === false && profile.is_online === true) {
+        setSessionExpired(true)
+      }
+    }
+
+    // Check every 2 minutes
+    const interval = setInterval(checkSession, 2 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [profile?.id])
+
+  // Show forced logout screen
+  if (sessionExpired) {
+    return (
+      <div style={{
+        minHeight: '100vh', background: '#F0F7FF',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <div style={{
+          background: '#FFFFFF', borderRadius: 16, padding: 40,
+          maxWidth: 400, width: '90%', textAlign: 'center',
+          boxShadow: '0 4px 24px rgba(0,174,239,0.10)',
+          border: '1px solid #DBEAFE',
+        }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+          <h2 style={{ color: '#1B3A6B', fontSize: 20, fontWeight: 700, marginBottom: 8 }}>
+            Session Ended
+          </h2>
+          <p style={{ color: '#6B7280', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
+            Your session was automatically ended at 6:30 PM. Please log in again tomorrow with your daily code.
+          </p>
+          <button
+            onClick={() => { signOut(); navigate('/') }}
+            style={{
+              background: '#00AEEF', color: '#FFFFFF', border: 'none',
+              borderRadius: 8, padding: '12px 28px', fontSize: 15,
+              fontWeight: 600, cursor: 'pointer', width: '100%',
+            }}
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const navLinks = [
     { to: '/employee',          label: 'Dashboard',       Icon: LayoutDashboard, end: true },

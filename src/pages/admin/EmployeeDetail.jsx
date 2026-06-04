@@ -1155,7 +1155,7 @@ export default function EmployeeDetail() {
                   const daysPresent = Math.max(0, Number(overrideFields.working_days) || 0)
 
                   const monthlySalary = salaryBreakdown.monthly_salary ?? 0
-                  const perDayRate = monthlySalary / generalWorkingDays
+                  const perDayRate = monthlySalary / daysInMonth
                   const absentDays = Math.max(0, generalWorkingDays - daysPresent - paidLeaves)
                   const deduction = perDayRate * absentDays
                   const netPayable = monthlySalary - deduction
@@ -1236,7 +1236,7 @@ export default function EmployeeDetail() {
                           <span style={{ fontSize: 13, fontWeight: 600, color: '#1B3A6B' }}>{generalWorkingDays} days</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
-                          <span style={{ fontSize: 13, color: '#6B7280' }}>Per Day Rate (÷{generalWorkingDays})</span>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>Per Day Rate (÷{daysInMonth})</span>
                           <span style={{ fontSize: 13, fontWeight: 500, color: '#1B3A6B' }}>{formatCurrency(perDayRate)}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>

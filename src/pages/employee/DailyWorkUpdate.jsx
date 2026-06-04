@@ -79,7 +79,15 @@ export default function DailyWorkUpdate() {
   const [history, setHistory] = useState([])
   const [loadingHistory, setLoadingHistory] = useState(true)
 
-  useEffect(() => { if (user) { fetchToday(); fetchHistory() } }, [user])
+  // ── Pending state
+  const [pendingDates, setPendingDates] = useState([])
+  const [loadingPending, setLoadingPending] = useState(true)
+  const [expandedPending, setExpandedPending] = useState(null) // which date is open
+  const [pendingSummary, setPendingSummary] = useState({})     // { 'yyyy-MM-dd': '' }
+  const [pendingIssues, setPendingIssues] = useState({})       // { 'yyyy-MM-dd': '' }
+  const [submittingPending, setSubmittingPending] = useState(null) // date string being submitted
+
+  useEffect(() => { if (user) { fetchToday(); fetchHistory(); fetchPendingDates() } }, [user])
   useEffect(() => { if (user) fetchHistory() }, [selectedMonth])
 
   /* ── Fetch today's submission ── */
@@ -138,6 +146,23 @@ export default function DailyWorkUpdate() {
     }
   }
 
+  /* ── Fetch pending dates ── */
+  async function fetchPendingDates() {
+    setLoadingPending(true)
+    try {
+      const { data, error } = await supabase.rpc('get_pending_work_dates', {
+        p_profile_id: user.id
+      })
+      if (!error && data) {
+        setPendingDates(data.map(row => row.pending_date))
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoadingPending(false)
+    }
+  }
+
   /* ── Submit / Update ── */
   async function handleSubmit(e) {
     e.preventDefault()
@@ -179,6 +204,40 @@ export default function DailyWorkUpdate() {
     }
   }
 
+  /* ── Pending Submit ── */
+  async function handlePendingSubmit(date) {
+    const workText = (pendingSummary[date] || '').trim()
+    if (!workText) {
+      toast.error('Please describe what you worked on')
+      return
+    }
+    setSubmittingPending(date)
+    try {
+      const { error } = await supabase
+        .from('daily_work_submissions')
+        .upsert({
+          profile_id: user.id,
+          submission_date: date,
+          work_description: workText,
+          issues_faced: (pendingIssues[date] || '').trim() || null,
+          created_at: new Date().toISOString()
+        }, { onConflict: 'profile_id,submission_date' })
+
+      if (error) throw error
+
+      toast.success(`Work submitted for ${fmtDate(date)}`)
+      // Remove this date from pending list
+      setPendingDates(prev => prev.filter(d => d !== date))
+      setExpandedPending(null)
+      // Refresh history table
+      await fetchHistory()
+    } catch (err) {
+      toast.error(err.message ?? 'Failed to submit')
+    } finally {
+      setSubmittingPending(null)
+    }
+  }
+
   /* ── Prefill form from a history row and scroll up ── */
   function prefillFromHistory(row) {
     setSummary(row.work_description ?? '')
@@ -210,6 +269,124 @@ export default function DailyWorkUpdate() {
           Track and submit your daily work updates
         </p>
       </div>
+
+      {/* ── Pending Submissions Section ── */}
+      {loadingPending ? null : pendingDates.length > 0 && (
+        <div style={{
+          background: '#FFFFFF', borderRadius: 16,
+          border: '1.5px solid #FDE68A',
+          boxShadow: '0 2px 8px rgba(217,119,6,0.08)',
+          marginBottom: 24, overflow: 'hidden',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '14px 20px',
+            background: '#FFFBEB',
+            borderBottom: '1px solid #FDE68A',
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <AlertTriangle size={18} color="#D97706" />
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 700, color: '#92400E', margin: 0 }}>
+                Pending Submissions ({pendingDates.length})
+              </p>
+              <p style={{ fontSize: 12, color: '#B45309', margin: '2px 0 0' }}>
+                You have unsubmitted work from previous days this month
+              </p>
+            </div>
+          </div>
+
+          {/* List of pending dates */}
+          <div style={{ padding: '8px 0' }}>
+            {pendingDates.map((date, idx) => {
+              const isOpen = expandedPending === date
+              const isSubmitting = submittingPending === date
+              return (
+                <div key={date} style={{
+                  borderBottom: idx < pendingDates.length - 1 ? '1px solid #FEF3C7' : 'none',
+                }}>
+                  {/* Row header - click to expand */}
+                  <button
+                    onClick={() => setExpandedPending(isOpen ? null : date)}
+                    style={{
+                      width: '100%', padding: '12px 20px',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      fontFamily: 'Inter, sans-serif',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Calendar size={15} color="#D97706" />
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#1B3A6B' }}>
+                        {fmtHistoryDate(date)}
+                      </span>
+                    </div>
+                    <span style={{
+                      fontSize: 12, color: '#D97706', fontWeight: 600,
+                      background: '#FEF3C7', padding: '3px 10px', borderRadius: 9999,
+                    }}>
+                      {isOpen ? 'Close' : 'Submit'}
+                    </span>
+                  </button>
+
+                  {/* Expanded form */}
+                  {isOpen && (
+                    <div style={{ padding: '4px 20px 16px', background: '#FFFBEB' }}>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 5 }}>
+                          What did you work on? <span style={{ color: '#E8192C' }}>*</span>
+                        </label>
+                        <textarea
+                          value={pendingSummary[date] || ''}
+                          onChange={e => setPendingSummary(prev => ({ ...prev, [date]: e.target.value }))}
+                          placeholder="Describe your work for this day..."
+                          className="input-field"
+                          rows={3}
+                          maxLength={1000}
+                          style={{ resize: 'vertical', minHeight: 80, lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
+                        />
+                        <p style={{ margin: '3px 0 0', fontSize: 11, color: '#9CA3AF', textAlign: 'right' }}>
+                          {(pendingSummary[date] || '').length} / 1000
+                        </p>
+                      </div>
+                      <div style={{ marginBottom: 14 }}>
+                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 5 }}>
+                          Issues Faced <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(optional)</span>
+                        </label>
+                        <textarea
+                          value={pendingIssues[date] || ''}
+                          onChange={e => setPendingIssues(prev => ({ ...prev, [date]: e.target.value }))}
+                          placeholder="Any blockers or issues..."
+                          className="input-field"
+                          rows={2}
+                          style={{ resize: 'vertical', minHeight: 60, lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
+                        />
+                      </div>
+                      <button
+                        onClick={() => handlePendingSubmit(date)}
+                        disabled={isSubmitting || !(pendingSummary[date] || '').trim()}
+                        style={{
+                          padding: '10px 24px', background: '#D97706', color: '#FFFFFF',
+                          border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600,
+                          cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                          fontFamily: 'Inter, sans-serif',
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          opacity: (isSubmitting || !(pendingSummary[date] || '').trim()) ? 0.7 : 1,
+                        }}
+                      >
+                        {isSubmitting
+                          ? <><Loader2 size={14} style={{ animation: 'spin 0.7s linear infinite' }} /> Submitting...</>
+                          : 'Submit for this day'
+                        }
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Section 1: Today's Status Banner ── */}
       {loadingToday ? (
