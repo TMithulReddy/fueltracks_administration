@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   Download,
   ClipboardList,
+  Paperclip,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
@@ -112,6 +113,7 @@ export default function EmployeeDetail() {
     public_holidays: 0,
     paid_leaves: 0,
     working_days: 0,
+    bonus: 0,
   })
 
   // ── Work Progress State ───────────────────────────────────────────────────────
@@ -295,9 +297,10 @@ export default function EmployeeDetail() {
       if (!error && data) {
         setSalaryBreakdown(data)
         setOverrideFields({
-          public_holidays: data.holidays ?? 0,
-          paid_leaves:   data.paid_leaves   ?? 0,
-          working_days:  data.working_days  ?? 0,
+          public_holidays: 0,
+          paid_leaves: 0,
+          working_days: data.working_days ?? 0,
+          bonus: 0,
         })
       }
     } finally {
@@ -712,7 +715,7 @@ export default function EmployeeDetail() {
   const historyTotalPages = Math.ceil(historyCount / HISTORY_PAGE_SIZE)
 
   return (
-    <div>
+    <div style={{ maxWidth: 1400, margin: '0 auto', padding: '24px 24px' }}>
       {/* Back link */}
       <div style={{ marginBottom: 20 }}>
         <Link to="/admin/employees" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#00AEEF', fontWeight: 600, textDecoration: 'none' }}>
@@ -1014,7 +1017,7 @@ export default function EmployeeDetail() {
         </div>
 
         {/* ── Right Column ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>
 
           {/* Card 4: Admin Controls */}
           <div style={{ background: '#FFFFFF', borderRadius: 12, boxShadow: '0 2px 12px rgba(0,174,239,0.08)', padding: 24 }}>
@@ -1153,12 +1156,13 @@ export default function EmployeeDetail() {
                   const generalWorkingDays = Math.max(1, daysInMonth - sundays - publicHolidays)
                   const paidLeaves = Math.max(0, Number(overrideFields.paid_leaves) || 0)
                   const daysPresent = Math.max(0, Number(overrideFields.working_days) || 0)
+                  const bonus = Math.max(0, Number(overrideFields.bonus) || 0)
 
                   const monthlySalary = salaryBreakdown.monthly_salary ?? 0
                   const perDayRate = monthlySalary / daysInMonth
                   const absentDays = Math.max(0, generalWorkingDays - daysPresent - paidLeaves)
                   const deduction = perDayRate * absentDays
-                  const netPayable = monthlySalary - deduction
+                  const netPayable = monthlySalary - deduction + bonus
 
                   const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
@@ -1270,6 +1274,16 @@ export default function EmployeeDetail() {
                             <span style={{ fontSize: 13, fontWeight: 500, color: '#E8192C' }}>- {formatCurrency(deduction)}</span>
                           </div>
                         )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #F3F4F6' }}>
+                          <span style={{ fontSize: 13, color: '#6B7280' }}>Bonus (Addition)</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 13, color: '#6B7280' }}>₹</span>
+                            <input type="number" min="0" value={overrideFields.bonus}
+                              onChange={e => handleFieldChange('bonus', e.target.value)} style={{ ...inputStyle, width: 80 }}
+                              id="override-bonus"
+                            />
+                          </div>
+                        </div>
                       </div>
                       <div style={{ background: '#F0F7FF', borderRadius: 10, padding: '10px 14px', marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: 13, fontWeight: 600, color: '#1B3A6B' }}>Net Payable This Month</span>
@@ -1288,183 +1302,136 @@ export default function EmployeeDetail() {
             )}
           </div>
 
-          {/* Card 6: Work Progress */}
-          <div style={{ background: '#FFFFFF', borderRadius: 16, border: '1px solid #DBEAFE', boxShadow: '0 2px 12px rgba(0,174,239,0.08)', padding: 24, marginTop: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <ClipboardList size={18} color="#00AEEF" />
-                  <span style={{ fontSize: 15, fontWeight: 600, color: '#1B3A6B' }}>Work Progress</span>
-                </div>
-                <p style={{ margin: '3px 0 0 26px', fontSize: 12, color: '#9CA3AF' }}>
-                  {progressTotal} total submission{progressTotal === 1 ? '' : 's'}
-                </p>
-              </div>
-              {progressLoading && <Loader2 size={16} color="#9CA3AF" style={{ animation: 'spin 0.7s linear infinite' }} />}
-            </div>
+        </div>
+      </div>
 
-            {progressLoading && workProgress.length === 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {[1, 2, 3].map(i => (
-                  <div key={i} style={{ height: 64, borderRadius: 8, background: '#E5E7EB', animation: 'wp-pulse 1.5s ease-in-out infinite' }} />
-                ))}
-                <style>{`
-                  @keyframes wp-pulse {
-                    0%, 100% { opacity: 1; }
-                    50% { opacity: 0.4; }
-                  }
-                `}</style>
-              </div>
-            ) : workProgress.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                <Briefcase size={36} color="#D1D5DB" style={{ marginBottom: 8 }} />
-                <p style={{ margin: 0, fontSize: 14, color: '#9CA3AF', fontWeight: 500 }}>No submissions yet</p>
-                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#9CA3AF' }}>This employee has not submitted any work updates</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {workProgress.map(row => {
-                  const isExpanded = expandedSummaries.has(row.id)
-                  const workDesc = row.work_description || ''
-                  const isLong = workDesc.length > 150
-                  const displayDesc = isLong && !isExpanded
-                    ? workDesc.slice(0, 150) + '…'
-                    : workDesc
+      {/* Card 6: Work Progress (Full Width) */}
+      <div style={{ width: '100%', background: '#FFFFFF', borderRadius: 16, border: '1px solid #DBEAFE', boxShadow: '0 2px 8px rgba(0,174,239,0.06)', overflow: 'hidden', marginTop: 24, marginBottom: 20 }}>
+        <div style={{ padding: '16px 24px', borderBottom: '1px solid #DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ClipboardList size={16} color="#00AEEF" />
+            <h2 style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', margin: 0 }}>
+              Work Progress
+            </h2>
+            <span style={{ fontSize: 12, color: '#9CA3AF', marginLeft: 8 }}>
+              {progressTotal} total submission{progressTotal === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {progressLoading && <Loader2 size={16} color="#9CA3AF" style={{ animation: 'spin 0.7s linear infinite' }} />}
+            <a
+              href="https://console.cloudinary.com/app/c-ec0d60b4dc04867a8d7f920d1aaf4b/assets/media_library/folders/fueltracks"
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '7px 14px', background: '#00AEEF', color: '#FFFFFF',
+                borderRadius: 8, fontSize: 12, fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              <Paperclip size={13}/> View All Files
+            </a>
+          </div>
+        </div>
 
+        {progressLoading && workProgress.length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 24 }}>
+            {[1, 2, 3].map(i => (
+              <div key={i} style={{ height: 64, borderRadius: 8, background: '#E5E7EB', animation: 'wp-pulse 1.5s ease-in-out infinite' }} />
+            ))}
+            <style>{`
+              @keyframes wp-pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.4; }
+              }
+            `}</style>
+          </div>
+        ) : workProgress.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '32px 0' }}>
+            <Briefcase size={36} color="#D1D5DB" style={{ marginBottom: 8 }} />
+            <p style={{ margin: 0, fontSize: 14, color: '#9CA3AF', fontWeight: 500 }}>No submissions yet</p>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#9CA3AF' }}>This employee has not submitted any work updates</p>
+          </div>
+        ) : (
+          <div style={{ height: '380px', overflowY: 'scroll', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 500 }}>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#F8FBFF' }}>
+                <tr>
+                  {['DATE', 'WORK DESCRIPTION', 'ISSUES', 'FILES', 'STATUS', 'SUBMITTED AT'].map(h => (
+                    <th key={h} style={{
+                      padding: '10px 16px', textAlign: 'left',
+                      fontSize: 12, fontWeight: 600, color: '#6B7280',
+                      borderBottom: '1px solid #DBEAFE', whiteSpace: 'nowrap',
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {workProgress.map((row, index) => {
                   let dateLabel = '—'
                   let timeLabel = '—'
                   try {
-                    if (row.submission_date) {
-                      dateLabel = format(new Date(row.submission_date + 'T00:00:00'), 'EEEE, d MMMM yyyy')
-                    }
-                    if (row.created_at) {
-                      timeLabel = format(parseISO(row.created_at), 'd MMM, h:mm a')
-                    }
+                    if (row.submission_date) dateLabel = format(new Date(row.submission_date + 'T00:00:00'), 'MMM d, yyyy')
+                    if (row.created_at) timeLabel = format(parseISO(row.created_at), 'd MMM, h:mm a')
                   } catch {}
 
-                  const handleDownload = () => {
-                    const formattedDate = format(new Date(row.submission_date + 'T00:00:00'), 'EEEE, d MMMM yyyy')
-                    const formattedTime = format(parseISO(row.created_at), 'd MMM, h:mm a')
-                    const content = [
-                      'FUEL TRACKS — Work Submission',
-                      '==============================',
-                      '',
-                      `Employee: ${employee?.full_name}`,
-                      `ID: ${employee?.employee_id}`,
-                      `Date: ${formattedDate}`,
-                      `Submitted: ${formattedTime}`,
-                      '',
-                      'WORK DONE:',
-                      workDesc,
-                      '',
-                      row.issues_faced ? 'ISSUES FACED:' : '',
-                      row.issues_faced ?? ''
-                    ].join('\n')
-
-                    const blob = new Blob([content], { type: 'text/plain' })
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = `${employee?.employee_id}_${row.submission_date}_work.txt`
-                    a.click()
-                    URL.revokeObjectURL(url)
-                  }
-
                   return (
-                    <div key={row.id} style={{ background: '#FFFFFF', border: '1px solid #F3F4F6', borderRadius: 12, padding: 14 }}>
-                      {/* Top row */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                        <div>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#1B3A6B' }}>
-                            {dateLabel}
-                          </p>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
-                            <Clock size={11} color="#9CA3AF" />
-                            <span style={{ fontSize: 11, color: '#9CA3AF' }}>Submitted at {timeLabel}</span>
+                    <tr key={row.id} style={{ 
+                      borderBottom: '1px solid #F0F7FF', 
+                      background: index % 2 === 0 ? '#FFFFFF' : '#FAFCFF',
+                      transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#F8FBFF'}
+                    onMouseLeave={e => e.currentTarget.style.background = index % 2 === 0 ? '#FFFFFF' : '#FAFCFF'}
+                    >
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap', fontWeight: 600, color: '#1B3A6B', fontSize: 13 }}>
+                        {dateLabel}
+                      </td>
+                      <td style={{ padding: '14px 20px', fontSize: 13, color: '#4B5563', maxWidth: 220 }}>
+                        {row.work_description && row.work_description.length > 80 
+                          ? row.work_description.slice(0, 80) + '...' 
+                          : row.work_description || '—'}
+                      </td>
+                      <td style={{ padding: '14px 20px', fontSize: 13, color: '#4B5563', maxWidth: 180 }}>
+                        {row.issues_faced && row.issues_faced.length > 60
+                          ? row.issues_faced.slice(0, 60) + '...'
+                          : row.issues_faced || '—'}
+                      </td>
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap' }}>
+                        {(!row.attachment_urls || row.attachment_urls.length === 0) ? (
+                          <Paperclip size={15} color="#D1D5DB"/>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            {row.attachment_urls.map((url, i) => (
+                              <button key={i} onClick={() => window.open(url, '_blank')}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', color: '#00AEEF' }}
+                                title={`File ${i + 1}`}>
+                                <Paperclip size={15}/>
+                              </button>
+                            ))}
                           </div>
-                        </div>
-                        <div style={{ flexShrink: 0 }}>
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            background: '#DCFCE7', color: '#16A34A', fontSize: 11,
-                            borderRadius: 9999, padding: '2px 8px', fontWeight: 600
-                          }}>
-                            <CheckCircle size={11} /> Submitted
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Work Description */}
-                      <div style={{ marginTop: 8 }}>
-                        <p style={{ margin: 0, fontSize: 11, color: '#9CA3AF', fontWeight: 'bold', textTransform: 'uppercase' }}>Work Done</p>
-                        <p style={{ margin: '4px 0 0', fontSize: 13, color: '#4B5563', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-                          {displayDesc}
-                        </p>
-                        {isLong && (
-                          <span onClick={() => setExpandedSummaries(prev => {
-                            const next = new Set(prev)
-                            if (isExpanded) next.delete(row.id)
-                            else next.add(row.id)
-                            return next
-                          })}
-                            style={{ fontSize: 11, color: '#00AEEF', cursor: 'pointer', display: 'inline-block', marginTop: 2 }}>
-                            {isExpanded ? 'Show less' : 'Show more'}
-                          </span>
                         )}
-                      </div>
-
-                      {/* Issues Faced */}
-                      {row.issues_faced && (
-                        <div style={{ marginTop: 8 }}>
-                          <p style={{ margin: 0, fontSize: 11, color: '#E8192C', fontWeight: 'bold', textTransform: 'uppercase' }}>Issues Faced</p>
-                          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#DC2626', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-                            {row.issues_faced}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Download button */}
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                        <button onClick={handleDownload}
-                          style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 5,
-                            background: '#F0F7FF', color: '#00AEEF', fontSize: 12,
-                            borderRadius: 8, padding: '6px 12px', border: '1px solid #DBEAFE',
-                            cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: 500
-                          }}>
-                          <Download size={12} /> Download
-                        </button>
-                      </div>
-                    </div>
+                      </td>
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap' }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          background: '#DCFCE7', color: '#16A34A', fontSize: 11,
+                          borderRadius: 9999, padding: '2px 8px', fontWeight: 600
+                        }}>
+                          <CheckCircle size={11} /> Submitted
+                        </span>
+                      </td>
+                      <td style={{ padding: '14px 20px', whiteSpace: 'nowrap', fontSize: 12, color: '#9CA3AF' }}>
+                        {timeLabel}
+                      </td>
+                    </tr>
                   )
                 })}
-              </div>
-            )}
-
-            {!progressLoading && progressTotal > PROGRESS_PAGE_SIZE && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-                <span style={{ fontSize: 12, color: '#6B7280' }}>
-                  Showing {progressPage * PROGRESS_PAGE_SIZE + 1}–{Math.min(progressTotal, (progressPage + 1) * PROGRESS_PAGE_SIZE)} of {progressTotal} submissions
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <button onClick={() => fetchWorkProgress(progressPage - 1)} disabled={progressPage === 0}
-                    style={{ background: 'none', border: '1px solid #DBEAFE', borderRadius: 6, padding: '4px 8px', cursor: progressPage === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', opacity: progressPage === 0 ? 0.4 : 1 }}
-                    id="wp-prev-page">
-                    <ChevronLeft size={14} color="#1B3A6B" />
-                  </button>
-                  <span style={{ fontSize: 12, color: '#1B3A6B', fontWeight: 600, margin: '0 8px' }}>
-                    Page {progressPage + 1} of {Math.ceil(progressTotal / PROGRESS_PAGE_SIZE)}
-                  </span>
-                  <button onClick={() => fetchWorkProgress(progressPage + 1)} disabled={progressPage >= Math.ceil(progressTotal / PROGRESS_PAGE_SIZE) - 1}
-                    style={{ background: 'none', border: '1px solid #DBEAFE', borderRadius: 6, padding: '4px 8px', cursor: progressPage >= Math.ceil(progressTotal / PROGRESS_PAGE_SIZE) - 1 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', opacity: progressPage >= Math.ceil(progressTotal / PROGRESS_PAGE_SIZE) - 1 ? 0.4 : 1 }}
-                    id="wp-next-page">
-                    <ChevronRight size={14} color="#1B3A6B" />
-                  </button>
-                </div>
-              </div>
-            )}
+              </tbody>
+            </table>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Card 6: Login & Logout History (Full Width) */}

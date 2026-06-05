@@ -81,8 +81,10 @@ export default function EmployeeProfile() {
     await Promise.all(
       EMPLOYEE_VISIBLE_DOCS.map(async (doc) => {
         const path = `${user.id}/${doc.filename}`
-        const url = await getSignedUrl(supabase, path, 3600)
-        urls[doc.key] = url
+        const { data } = await supabase.storage
+          .from('employee-documents')
+          .createSignedUrl(path, 3600)
+        urls[doc.key] = data?.signedUrl ?? null
       })
     )
     setDocUrls(urls)
@@ -94,13 +96,17 @@ export default function EmployeeProfile() {
     setDocViewing(prev => ({ ...prev, [doc.key]: true }))
     try {
       const path = `${user.id}/${doc.filename}`
-      const freshUrl = await getSignedUrl(supabase, path, 3600)
-      if (!freshUrl) {
+      const { data, error } = await supabase.storage
+        .from('employee-documents')
+        .createSignedUrl(path, 3600)
+      
+      if (error || !data?.signedUrl) {
         toast.error(`${doc.label} has not been uploaded yet.`)
         return
       }
-      setDocUrls(prev => ({ ...prev, [doc.key]: freshUrl }))
-      window.open(freshUrl, '_blank', 'noopener,noreferrer')
+      window.open(data.signedUrl, '_blank')
+    } catch (err) {
+      toast.error(`Failed to open ${doc.label}`)
     } finally {
       setDocViewing(prev => ({ ...prev, [doc.key]: false }))
     }
@@ -134,13 +140,17 @@ export default function EmployeeProfile() {
       if (uploadErr) throw uploadErr
 
       const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path)
-      const publicUrl = urlData.publicUrl
-
-      const { error: updateErr } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id)
+      const publicUrl = urlData?.publicUrl
+      
+      if (!publicUrl) throw new Error('Failed to get public URL')
+      
+      const { error: updateErr } = await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', user.id)
+      
       if (updateErr) throw updateErr
-
       await refreshProfile()
-      setAvatarPreview(null)
       toast.success('Profile photo updated')
     } catch (err) {
       setAvatarPreview(null)

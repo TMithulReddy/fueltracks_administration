@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  CheckCircle, AlertTriangle, Calendar, Loader2,
+  CheckCircle, AlertTriangle, Calendar, Loader2, Paperclip, X,
 } from 'lucide-react'
 import { format, parseISO, startOfMonth, endOfMonth } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -45,6 +45,33 @@ function formatBytes(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
+async function uploadFileToCloudinary(file, employeeName) {
+  const cloudName    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME
+  const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
+  const safeName     = employeeName.replace(/\s+/g, '_').toUpperCase()
+  const dateStr      = new Date().toISOString().split('T')[0]
+  const ext          = file.name.split('.').pop().toLowerCase()
+  const baseName     = file.name.replace(/\.[^/.]+$/, '').replace(/\s+/g, '_')
+  const fileName     = `${dateStr}_${baseName}`
+  const isImage      = ['jpg','jpeg','png','gif','webp'].includes(ext)
+  const resourceType = isImage ? 'image' : 'raw'
+
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('upload_preset', uploadPreset)
+  fd.append('folder', `fueltracks/${safeName}`)
+  fd.append('public_id', fileName)
+  fd.append('resource_type', resourceType)
+
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
+    { method: 'POST', body: fd }
+  )
+  const data = await res.json()
+  if (data.error) throw new Error(data.error.message || 'Upload failed')
+  return data.secure_url
+}
+
 /* Generate last-6-months option list */
 function getLast6Months() {
   return Array.from({ length: 6 }, (_, i) => {
@@ -61,7 +88,7 @@ function getLast6Months() {
 
 /* ── Main Page ───────────────────────────────────────────────── */
 export default function DailyWorkUpdate() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const formRef = useRef(null)
 
   // ── Today's submission state
@@ -79,13 +106,19 @@ export default function DailyWorkUpdate() {
   const [history, setHistory] = useState([])
   const [loadingHistory, setLoadingHistory] = useState(true)
 
+  // ── File state
+  const [selectedFiles, setSelectedFiles] = useState([])
+  const [uploadingFiles, setUploadingFiles] = useState(false)
+
   // ── Pending state
   const [pendingDates, setPendingDates] = useState([])
   const [loadingPending, setLoadingPending] = useState(true)
-  const [expandedPending, setExpandedPending] = useState(null) // which date is open
-  const [pendingSummary, setPendingSummary] = useState({})     // { 'yyyy-MM-dd': '' }
-  const [pendingIssues, setPendingIssues] = useState({})       // { 'yyyy-MM-dd': '' }
-  const [submittingPending, setSubmittingPending] = useState(null) // date string being submitted
+  const [expandedPending, setExpandedPending] = useState(null)
+  const [pendingSummary, setPendingSummary] = useState({})
+  const [pendingIssues, setPendingIssues] = useState({})
+  const [pendingFiles, setPendingFiles] = useState({})
+  const [submittingPending, setSubmittingPending] = useState(null)
+  const [uploadingPendingFiles, setUploadingPendingFiles] = useState(null)
 
   useEffect(() => { if (user) { fetchToday(); fetchHistory(); fetchPendingDates() } }, [user])
   useEffect(() => { if (user) fetchHistory() }, [selectedMonth])
@@ -96,7 +129,7 @@ export default function DailyWorkUpdate() {
     try {
       const { data } = await supabase
         .from('daily_work_submissions')
-        .select('id, work_description, created_at, issues_faced')
+        .select('id, work_description, created_at, issues_faced, attachment_urls')
         .eq('profile_id', user.id)
         .eq('submission_date', TODAY)
         .maybeSingle()
@@ -173,7 +206,24 @@ export default function DailyWorkUpdate() {
 
     setSubmitting(true)
     try {
-      // Step 3: Upsert daily_work_submissions row
+      let newUrls = []
+      if (selectedFiles.length > 0) {
+        setUploadingFiles(true)
+        try {
+          let empName = profile?.full_name
+          if (!empName) {
+            const { data } = await supabase
+              .from('profiles')
+              .select('full_name')
+              .eq('id', user.id)
+              .maybeSingle()
+            empName = data?.full_name || user.id
+          }
+          newUrls = await Promise.all(selectedFiles.map(f => uploadFileToCloudinary(f, empName)))
+        } finally { setUploadingFiles(false) }
+      }
+
+      // Upsert daily_work_submissions row
       const { error: upsertErr } = await supabase
         .from('daily_work_submissions')
         .upsert({
@@ -181,6 +231,7 @@ export default function DailyWorkUpdate() {
           submission_date: TODAY,
           work_description: summary.trim(),
           issues_faced: issuesText.trim() || null,
+          attachment_urls: [...(todaySubmission?.attachment_urls || []), ...newUrls],
           created_at: new Date().toISOString()
         }, { 
           onConflict: 'profile_id,submission_date'
@@ -188,12 +239,12 @@ export default function DailyWorkUpdate() {
 
       if (upsertErr) throw upsertErr
 
-      // Step 4: Toast
       toast.success(
         todaySubmission ? 'Submission updated successfully!' : 'Work submitted successfully!'
       )
+      setSelectedFiles([])
 
-      // Step 5 & 6: Refresh
+      // Refresh
       await fetchToday()
       await fetchHistory()
     } catch (err) {
@@ -207,29 +258,39 @@ export default function DailyWorkUpdate() {
   /* ── Pending Submit ── */
   async function handlePendingSubmit(date) {
     const workText = (pendingSummary[date] || '').trim()
-    if (!workText) {
-      toast.error('Please describe what you worked on')
-      return
-    }
+    if (!workText) { toast.error('Please describe what you worked on'); return }
     setSubmittingPending(date)
     try {
-      const { error } = await supabase
-        .from('daily_work_submissions')
-        .upsert({
-          profile_id: user.id,
-          submission_date: date,
-          work_description: workText,
-          issues_faced: (pendingIssues[date] || '').trim() || null,
-          created_at: new Date().toISOString()
-        }, { onConflict: 'profile_id,submission_date' })
-
+      let newUrls = []
+      const fileList = pendingFiles[date] || []
+      if (fileList.length > 0) {
+        setUploadingPendingFiles(date)
+        try {
+          let empName = profile?.full_name
+          if (!empName) {
+            const { data } = await supabase
+              .from('profiles')
+              .select('full_name')
+              .eq('id', user.id)
+              .maybeSingle()
+            empName = data?.full_name || user.id
+          }
+          newUrls = await Promise.all(fileList.map(f => uploadFileToCloudinary(f, empName)))
+        } finally { setUploadingPendingFiles(null) }
+      }
+      const { error } = await supabase.from('daily_work_submissions').upsert({
+        profile_id: user.id,
+        submission_date: date,
+        work_description: workText,
+        issues_faced: (pendingIssues[date] || '').trim() || null,
+        attachment_urls: newUrls,
+        created_at: new Date().toISOString()
+      }, { onConflict: 'profile_id,submission_date' })
       if (error) throw error
-
       toast.success(`Work submitted for ${fmtDate(date)}`)
-      // Remove this date from pending list
       setPendingDates(prev => prev.filter(d => d !== date))
       setExpandedPending(null)
-      // Refresh history table
+      setPendingFiles(prev => { const n={...prev}; delete n[date]; return n })
       await fetchHistory()
     } catch (err) {
       toast.error(err.message ?? 'Failed to submit')
@@ -271,113 +332,78 @@ export default function DailyWorkUpdate() {
       </div>
 
       {/* ── Pending Submissions Section ── */}
-      {loadingPending ? null : pendingDates.length > 0 && (
-        <div style={{
-          background: '#FFFFFF', borderRadius: 16,
-          border: '1.5px solid #FDE68A',
-          boxShadow: '0 2px 8px rgba(217,119,6,0.08)',
-          marginBottom: 24, overflow: 'hidden',
-        }}>
-          {/* Header */}
-          <div style={{
-            padding: '14px 20px',
-            background: '#FFFBEB',
-            borderBottom: '1px solid #FDE68A',
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}>
-            <AlertTriangle size={18} color="#D97706" />
+      {!loadingPending && pendingDates.length > 0 && (
+        <div style={{ background:'#FFFFFF', borderRadius:16, border:'1.5px solid #FDE68A', boxShadow:'0 2px 8px rgba(217,119,6,0.08)', marginBottom:24, overflow:'hidden' }}>
+          <div style={{ padding:'14px 20px', background:'#FFFBEB', borderBottom:'1px solid #FDE68A', display:'flex', alignItems:'center', gap:10 }}>
+            <AlertTriangle size={18} color="#D97706"/>
             <div>
-              <p style={{ fontSize: 14, fontWeight: 700, color: '#92400E', margin: 0 }}>
-                Pending Submissions ({pendingDates.length})
-              </p>
-              <p style={{ fontSize: 12, color: '#B45309', margin: '2px 0 0' }}>
-                You have unsubmitted work from previous days this month
-              </p>
+              <p style={{ fontSize:14, fontWeight:700, color:'#92400E', margin:0 }}>Pending Submissions ({pendingDates.length})</p>
+              <p style={{ fontSize:12, color:'#B45309', margin:'2px 0 0' }}>You have unsubmitted work from previous days this month</p>
             </div>
           </div>
-
-          {/* List of pending dates */}
-          <div style={{ padding: '8px 0' }}>
+          <div style={{ padding:'8px 0' }}>
             {pendingDates.map((date, idx) => {
               const isOpen = expandedPending === date
               const isSubmitting = submittingPending === date
               return (
-                <div key={date} style={{
-                  borderBottom: idx < pendingDates.length - 1 ? '1px solid #FEF3C7' : 'none',
-                }}>
-                  {/* Row header - click to expand */}
-                  <button
-                    onClick={() => setExpandedPending(isOpen ? null : date)}
-                    style={{
-                      width: '100%', padding: '12px 20px',
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      fontFamily: 'Inter, sans-serif',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Calendar size={15} color="#D97706" />
-                      <span style={{ fontSize: 14, fontWeight: 600, color: '#1B3A6B' }}>
-                        {fmtHistoryDate(date)}
-                      </span>
+                <div key={date} style={{ borderBottom: idx < pendingDates.length-1 ? '1px solid #FEF3C7' : 'none' }}>
+                  <button onClick={() => setExpandedPending(isOpen ? null : date)}
+                    style={{ width:'100%', padding:'12px 20px', background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between', fontFamily:'Inter, sans-serif' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <Calendar size={15} color="#D97706"/>
+                      <span style={{ fontSize:14, fontWeight:600, color:'#1B3A6B' }}>{fmtHistoryDate(date)}</span>
                     </div>
-                    <span style={{
-                      fontSize: 12, color: '#D97706', fontWeight: 600,
-                      background: '#FEF3C7', padding: '3px 10px', borderRadius: 9999,
-                    }}>
+                    <span style={{ fontSize:12, color:'#D97706', fontWeight:600, background:'#FEF3C7', padding:'3px 10px', borderRadius:9999 }}>
                       {isOpen ? 'Close' : 'Submit'}
                     </span>
                   </button>
-
-                  {/* Expanded form */}
                   {isOpen && (
-                    <div style={{ padding: '4px 20px 16px', background: '#FFFBEB' }}>
-                      <div style={{ marginBottom: 12 }}>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 5 }}>
-                          What did you work on? <span style={{ color: '#E8192C' }}>*</span>
+                    <div style={{ padding:'4px 20px 16px', background:'#FFFBEB' }}>
+                      <div style={{ marginBottom:12 }}>
+                        <label style={{ display:'block', fontSize:12, fontWeight:600, color:'#92400E', marginBottom:5 }}>
+                          What did you work on? <span style={{ color:'#E8192C' }}>*</span>
                         </label>
-                        <textarea
-                          value={pendingSummary[date] || ''}
-                          onChange={e => setPendingSummary(prev => ({ ...prev, [date]: e.target.value }))}
-                          placeholder="Describe your work for this day..."
-                          className="input-field"
-                          rows={3}
-                          maxLength={1000}
-                          style={{ resize: 'vertical', minHeight: 80, lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
-                        />
-                        <p style={{ margin: '3px 0 0', fontSize: 11, color: '#9CA3AF', textAlign: 'right' }}>
-                          {(pendingSummary[date] || '').length} / 1000
-                        </p>
+                        <textarea value={pendingSummary[date]||''} onChange={e=>setPendingSummary(prev=>({...prev,[date]:e.target.value}))}
+                          placeholder="Describe your work for this day..." className="input-field" rows={3} maxLength={1000}
+                          style={{ resize:'vertical', minHeight:80, lineHeight:1.6, fontFamily:'Inter, sans-serif' }}/>
                       </div>
-                      <div style={{ marginBottom: 14 }}>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 5 }}>
-                          Issues Faced <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(optional)</span>
+                      <div style={{ marginBottom:12 }}>
+                        <label style={{ display:'block', fontSize:12, fontWeight:600, color:'#92400E', marginBottom:5 }}>
+                          Issues Faced <span style={{ color:'#9CA3AF', fontWeight:400 }}>(optional)</span>
                         </label>
-                        <textarea
-                          value={pendingIssues[date] || ''}
-                          onChange={e => setPendingIssues(prev => ({ ...prev, [date]: e.target.value }))}
-                          placeholder="Any blockers or issues..."
-                          className="input-field"
-                          rows={2}
-                          style={{ resize: 'vertical', minHeight: 60, lineHeight: 1.6, fontFamily: 'Inter, sans-serif' }}
-                        />
+                        <textarea value={pendingIssues[date]||''} onChange={e=>setPendingIssues(prev=>({...prev,[date]:e.target.value}))}
+                          placeholder="Any blockers..." className="input-field" rows={2}
+                          style={{ resize:'vertical', minHeight:60, lineHeight:1.6, fontFamily:'Inter, sans-serif' }}/>
                       </div>
-                      <button
-                        onClick={() => handlePendingSubmit(date)}
-                        disabled={isSubmitting || !(pendingSummary[date] || '').trim()}
-                        style={{
-                          padding: '10px 24px', background: '#D97706', color: '#FFFFFF',
-                          border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600,
-                          cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                          fontFamily: 'Inter, sans-serif',
-                          display: 'flex', alignItems: 'center', gap: 8,
-                          opacity: (isSubmitting || !(pendingSummary[date] || '').trim()) ? 0.7 : 1,
-                        }}
-                      >
-                        {isSubmitting
-                          ? <><Loader2 size={14} style={{ animation: 'spin 0.7s linear infinite' }} /> Submitting...</>
-                          : 'Submit for this day'
-                        }
+                      <div style={{ marginBottom:14 }}>
+                        <label style={{ display:'block', fontSize:12, fontWeight:600, color:'#92400E', marginBottom:5 }}>
+                          Attachments <span style={{ color:'#9CA3AF', fontWeight:400 }}>(optional)</span>
+                        </label>
+                        {(pendingFiles[date]||[]).length > 0 && (
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:6 }}>
+                            {(pendingFiles[date]||[]).map((f,i) => (
+                              <span key={i} style={{ display:'inline-flex', alignItems:'center', gap:5, background:'#F0FFF4', border:'1px solid #BBF7D0', borderRadius:8, padding:'4px 8px', fontSize:11, color:'#16A34A' }}>
+                                <Paperclip size={11}/> {f.name}
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPendingFiles(prev => ({...prev, [date]: prev[date].filter((_, j) => j !== i)})) }}
+                                  style={{ background:'none', border:'none', cursor:'pointer', padding:'0 0 0 4px', display:'flex', alignItems:'center', color:'#16A34A', flexShrink:0 }}
+                                >
+                                  <X size={11}/>
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <label style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'6px 12px', background:'#FFFBEB', border:'1.5px dashed #FCD34D', borderRadius:8, cursor:'pointer', fontSize:12, color:'#92400E', fontWeight:500 }}>
+                          <Paperclip size={12}/> Attach Files
+                          <input type="file" multiple style={{ display:'none' }}
+                            onChange={e=>setPendingFiles(prev=>({...prev,[date]:[...(prev[date]||[]),...Array.from(e.target.files)]}))}/>
+                        </label>
+                      </div>
+                      <button onClick={()=>handlePendingSubmit(date)} disabled={isSubmitting||!(pendingSummary[date]||'').trim()}
+                        style={{ padding:'10px 24px', background:'#D97706', color:'#FFFFFF', border:'none', borderRadius:10, fontSize:14, fontWeight:600, cursor:isSubmitting?'not-allowed':'pointer', fontFamily:'Inter, sans-serif', display:'flex', alignItems:'center', gap:8, opacity:(isSubmitting||!(pendingSummary[date]||'').trim())?0.7:1 }}>
+                        {isSubmitting ? <><Loader2 size={14} style={{ animation:'spin 0.7s linear infinite' }}/> Submitting...</> : 'Submit for this day'}
                       </button>
                     </div>
                   )}
@@ -504,6 +530,69 @@ export default function DailyWorkUpdate() {
             />
           </div>
 
+          {/* Attachments (optional) */}
+          <div style={{ marginBottom:24 }}>
+            <label style={{ display:'block', fontSize:13, fontWeight:600, color:'#1B3A6B', marginBottom:6 }}>
+              Attachments <span style={{ color:'#9CA3AF', fontWeight:400, fontSize:12 }}>(optional)</span>
+            </label>
+            {(todaySubmission?.attachment_urls||[]).length > 0 && (
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:8 }}>
+                {todaySubmission.attachment_urls.map((url, i) => (
+                  <div key={i} style={{ display:'inline-flex', alignItems:'center', gap:0, background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:8, overflow:'hidden' }}>
+                    <a href={url} target="_blank" rel="noreferrer"
+                      style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 8px 5px 10px', fontSize:12, color:'#1D4ED8', textDecoration:'none', fontWeight:500 }}>
+                      <Paperclip size={12}/> File {i+1}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        const updated = todaySubmission.attachment_urls.filter((_, j) => j !== i)
+                        const { error } = await supabase
+                          .from('daily_work_submissions')
+                          .update({ attachment_urls: updated })
+                          .eq('id', todaySubmission.id)
+                        if (!error) {
+                          setTodaySubmission(prev => ({ ...prev, attachment_urls: updated }))
+                          toast.success('File removed')
+                        } else {
+                          toast.error('Failed to remove file')
+                        }
+                      }}
+                      style={{ background:'none', border:'none', borderLeft:'1px solid #BFDBFE', cursor:'pointer', padding:'5px 8px', display:'flex', alignItems:'center', color:'#93C5FD' }}
+                      title="Remove file"
+                    >
+                      <X size={11}/>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {selectedFiles.length > 0 && (
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:8 }}>
+                {selectedFiles.map((f,i) => (
+                  <span key={i} style={{ display:'inline-flex', alignItems:'center', gap:5, background:'#F0FFF4', border:'1px solid #BBF7D0', borderRadius:8, padding:'5px 10px', fontSize:12, color:'#16A34A' }}>
+                    <Paperclip size={12}/> {f.name}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedFiles(prev => prev.filter((_, j) => j !== i)) }}
+                      style={{ background:'none', border:'none', cursor:'pointer', padding:'0 0 0 4px', display:'flex', alignItems:'center', color:'#16A34A', flexShrink:0 }}
+                    >
+                      <X size={12}/>
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <label style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'8px 14px', background:'#F8FBFF', border:'1.5px dashed #93C5FD', borderRadius:8, cursor:'pointer', fontSize:13, color:'#1B3A6B', fontWeight:500 }}>
+              <Paperclip size={14}/>
+              {uploadingFiles ? 'Uploading...' : 'Attach Files'}
+              <input type="file" multiple style={{ display:'none' }}
+                onChange={e=>setSelectedFiles(prev=>[...prev,...Array.from(e.target.files)])} disabled={uploadingFiles}/>
+            </label>
+          </div>
+
           {/* NOTE FOR FUTURE: When logout button is pressed,
               check if today's work has been submitted.
               If not, redirect here before allowing logout.
@@ -602,7 +691,7 @@ export default function DailyWorkUpdate() {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
               <thead>
                 <tr style={{ background: '#F8FBFF' }}>
-                  {['DATE', 'WORK DESCRIPTION', 'ISSUES', 'STATUS', 'SUBMITTED AT'].map(h => (
+                  {['DATE', 'WORK DESCRIPTION', 'ISSUES', 'FILES', 'STATUS', 'SUBMITTED AT'].map(h => (
                     <th key={h} style={{
                       padding: '11px 20px', textAlign: 'left',
                       fontSize: 11, fontWeight: 700, color: '#93C5FD',
@@ -660,6 +749,23 @@ export default function DailyWorkUpdate() {
                           </span>
                         ) : (
                           <span style={{ fontSize: 13, color: '#9CA3AF' }}>—</span>
+                        )}
+                      </td>
+
+                      {/* Files */}
+                      <td style={{ padding:'14px 20px', whiteSpace:'nowrap' }}>
+                        {(!row.attachment_urls || row.attachment_urls.length === 0) ? (
+                          <Paperclip size={15} color="#D1D5DB"/>
+                        ) : (
+                          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                            {row.attachment_urls.map((url,i) => (
+                              <button key={i} onClick={()=>window.open(url,'_blank')}
+                                style={{ background:'none', border:'none', cursor:'pointer', padding:2, display:'flex', color:'#00AEEF' }}
+                                title={`Open file ${i+1}`}>
+                                <Paperclip size={15}/>
+                              </button>
+                            ))}
+                          </div>
                         )}
                       </td>
 

@@ -132,6 +132,23 @@ function DetailModal({ submission, onClose }) {
               </div>
             </div>
           )}
+
+          {/* Attachments */}
+          {submission.attachment_urls && submission.attachment_urls.length > 0 && (
+            <div style={{ marginTop:16 }}>
+              <label style={{ fontSize:12, fontWeight:600, color:'#6B7280', display:'block', marginBottom:8 }}>
+                Attachments
+              </label>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+                {submission.attachment_urls.map((url,i) => (
+                  <button key={i} onClick={()=>window.open(url,'_blank')}
+                    style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:8, padding:'7px 12px', fontSize:13, color:'#1D4ED8', fontWeight:500, cursor:'pointer' }}>
+                    <Paperclip size={13}/> File {i+1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -213,7 +230,7 @@ export default function EmployeeProgress() {
       const { data: subs, error: subsErr } = await supabase
         .from('daily_work_submissions')
         .select(`
-          id, work_description, issues_faced, submission_date, created_at,
+          id, work_description, issues_faced, submission_date, created_at, attachment_urls,
           profile:profiles!profile_id(id, full_name, employee_id, role, avatar_url)
         `)
         .eq('submission_date', selectedDate)
@@ -355,6 +372,20 @@ export default function EmployeeProgress() {
 
         {/* Date Selector & Search Input */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <a
+            href="https://console.cloudinary.com/app/c-ec0d60b4dc04867a8d7f920d1aaf4b/assets/media_library/folders/fueltracks"
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', background: '#00AEEF', color: '#FFFFFF',
+              borderRadius: 8, fontSize: 13, fontWeight: 600,
+              textDecoration: 'none', border: 'none',
+            }}
+          >
+            <Paperclip size={14}/> View All Files
+          </a>
+
           {/* Date Picker Input Container */}
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <Calendar size={16} color="#6B7280" style={{ position: 'absolute', left: 12, pointerEvents: 'none' }} />
@@ -648,14 +679,19 @@ export default function EmployeeProgress() {
 
                       {/* Files */}
                       <td style={{ padding: '16px 24px', whiteSpace: 'nowrap' }}>
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          fontSize: 12, fontWeight: 600, color: '#9CA3AF',
-                          background: '#F3F4F6', padding: '4px 10px', borderRadius: 9999,
-                        }}>
-                          <Paperclip size={12} />
-                          0
-                        </span>
+                        {(!row.attachment_urls || row.attachment_urls.length === 0) ? (
+                          <Paperclip size={15} color="#D1D5DB"/>
+                        ) : (
+                          <div style={{ display:'flex', gap:4 }}>
+                            {row.attachment_urls.map((url,i) => (
+                              <button key={i} onClick={()=>window.open(url,'_blank')}
+                                style={{ background:'none', border:'none', cursor:'pointer', padding:2, display:'flex', color:'#00AEEF' }}
+                                title={`File ${i+1}`}>
+                                <Paperclip size={15}/>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </td>
 
                       {/* Status */}
