@@ -136,6 +136,15 @@ export default function ChangePasswordPage() {
 
     // Step 5: Update
     try {
+      // Refresh session first
+      const { error: refreshErr } = await supabase.auth.refreshSession()
+      if (refreshErr) {
+        toast.error('Your session has expired. Please log in again.')
+        await supabase.auth.signOut()
+        window.location.href = '/'
+        return
+      }
+
       const { error: updateErr } = await supabase.auth.updateUser({ password: newPwd })
       if (updateErr) throw updateErr
 

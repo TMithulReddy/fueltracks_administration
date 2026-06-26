@@ -52,16 +52,18 @@ async function uploadFileToCloudinary(file, employeeName) {
   const dateStr      = new Date().toISOString().split('T')[0]
   const ext          = file.name.split('.').pop().toLowerCase()
   const baseName     = file.name.replace(/\.[^/.]+$/, '').replace(/\s+/g, '_')
-  const fileName     = `${dateStr}_${baseName}`
-  const isImage      = ['jpg','jpeg','png','gif','webp'].includes(ext)
-  const resourceType = isImage ? 'image' : 'raw'
+
+  const imageExts = ['jpg','jpeg','png','gif','webp','svg','bmp']
+  const videoExts = ['mp4','mov','avi','mkv','webm']
+  const resourceType = imageExts.includes(ext) ? 'image'
+    : videoExts.includes(ext) ? 'video'
+    : 'raw'
 
   const fd = new FormData()
   fd.append('file', file)
   fd.append('upload_preset', uploadPreset)
   fd.append('folder', `fueltracks/${safeName}`)
-  fd.append('public_id', fileName)
-  fd.append('resource_type', resourceType)
+  fd.append('public_id', `${dateStr}_${baseName}`)
 
   const res = await fetch(
     `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,

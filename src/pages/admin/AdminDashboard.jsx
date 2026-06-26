@@ -1,5 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Users, Wifi, LogIn, KeyRound, AlertCircle } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Users, Wifi, LogIn, KeyRound, AlertCircle, ScanLine, Coffee, X, Undo2 } from 'lucide-react'
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
+import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
@@ -101,6 +103,15 @@ export default function AdminDashboard() {
   const [onlineLoading, setOnlineLoading] = useState(true)
   const [error, setError]               = useState('')
   const [lastUpdated, setLastUpdated]   = useState(null)
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [scanMode, setScanMode] = useState(null) // 'attendance' or 'break'
+  const [lastScanResult, setLastScanResult] = useState(null)
+  const [lastScanAction, setLastScanAction] = useState(null) // for undo
+  const [cooldownIds, setCooldownIds] = useState({}) // { profile_id: timestamp }
+  const [isProcessingScan, setIsProcessingScan] = useState(false)
+  const html5QrRef = useRef(null)
+  const isProcessingScanRef = useRef(false)
+  const scannerDivId = 'qr-reader-box'
 
   const fetchAll = useCallback(async () => {
     const today      = new Date().toISOString().split('T')[0]
@@ -121,7 +132,7 @@ export default function AdminDashboard() {
           .eq('is_online', true).eq('role', 'employee'),
 
         supabase.from('login_history').select('*', { count: 'exact', head: true })
-          .eq('status', 'success').eq('event_type', 'login')
+          .eq('status', 'success').in('event_type', ['login', 'qr_scan'])
           .gte('login_at', todayStart).lte('login_at', todayEnd),
 
         supabase.from('daily_codes').select('id, is_active')
@@ -194,6 +205,248 @@ export default function AdminDashboard() {
     return `${Math.floor(secs / 60)} minutes ago`
   }
 
+  async function startScanner(mode) {
+    setScanMode(mode)
+    setScannerOpen(true)
+    setTimeout(async () => {
+      try {
+        const qr = new Html5Qrcode(scannerDivId, { verbose: false })
+        html5QrRef.current = qr
+        await qr.start(
+          {
+            facingMode: 'environment'
+          },
+          {
+            fps: 24,
+            qrbox: function(viewfinderWidth, viewfinderHeight) {
+              const minEdge = Math.min(viewfinderWidth, viewfinderHeight)
+              const boxSize = Math.floor(minEdge * 0.85)
+              return { width: boxSize, height: boxSize }
+            },
+            aspectRatio: 1.0,
+            disableFlip: false,
+            videoConstraints: {
+              width: { min: 1280, ideal: 1920, max: 2560 },
+              height: { min: 720, ideal: 1080, max: 1440 }
+            },
+            experimentalFeatures: {
+              useBarCodeDetectorIfSupported: true
+            },
+            formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
+          },
+          (decodedText) => handleScanSuccess(decodedText, mode),
+          () => {}
+        )
+      } catch (err) {
+        console.error('Camera scan error:', err)
+        let message = 'Unknown error'
+        if (err?.message) message = err.message
+        else if (typeof err === 'string') message = err
+        else if (err?.name) message = err.name
+
+        if (message.includes('NotAllowedError') || err?.name === 'NotAllowedError') {
+          message = 'Camera permission denied. Please allow camera access in browser settings.'
+        } else if (message.includes('NotFoundError') || err?.name === 'NotFoundError') {
+          message = 'No camera found on this device.'
+        } else if (message.includes('NotReadableError') || err?.name === 'NotReadableError') {
+          message = 'Camera is already in use by another app.'
+        } else if (!window.isSecureContext) {
+          message = 'Camera requires HTTPS. This page is not secure.'
+        }
+
+        toast.error('Camera access failed: ' + message)
+        setScannerOpen(false)
+      }
+    }, 300)
+  }
+
+  async function stopScanner() {
+    if (html5QrRef.current) {
+      try { await html5QrRef.current.stop(); await html5QrRef.current.clear() } catch {}
+      html5QrRef.current = null
+    }
+    setScannerOpen(false)
+    setScanMode(null)
+  }
+
+  async function handleScanSuccess(decodedText, mode) {
+    if (isProcessingScanRef.current) return  // ignore while a scan is being processed
+    isProcessingScanRef.current = true
+
+    if (html5QrRef.current) {
+      try { await html5QrRef.current.pause(true) } catch {}
+    }
+
+    let parsed
+    try {
+      parsed = JSON.parse(decodedText)
+    } catch {
+      toast.error('QR not recognized')
+      if (html5QrRef.current) {
+        setTimeout(async () => {
+          try { await html5QrRef.current?.resume() } catch {}
+          isProcessingScanRef.current = false
+        }, 2000)
+      } else {
+        isProcessingScanRef.current = false
+      }
+      return
+    }
+
+    if (parsed.type !== 'fueltracks_employee' || !parsed.id) {
+      toast.error('QR not recognized')
+      if (html5QrRef.current) {
+        setTimeout(async () => {
+          try { await html5QrRef.current?.resume() } catch {}
+          isProcessingScanRef.current = false
+        }, 2000)
+      } else {
+        isProcessingScanRef.current = false
+      }
+      return
+    }
+
+    const now = Date.now()
+    const lastScan = cooldownIds[parsed.id]
+    if (lastScan && now - lastScan < 60000) {
+      toast('Already scanned — wait 1 minute before scanning again', { icon: '⏳' })
+      if (html5QrRef.current) {
+        setTimeout(async () => {
+          try { await html5QrRef.current?.resume() } catch {}
+          isProcessingScanRef.current = false
+        }, 2000)
+      } else {
+        isProcessingScanRef.current = false
+      }
+      return
+    }
+    setCooldownIds(prev => ({ ...prev, [parsed.id]: now }))
+
+    try {
+      const rpcName = mode === 'break' ? 'toggle_break_by_qr' : 'toggle_attendance_by_qr'
+      
+      console.log('Calling RPC', rpcName, 'for profile', parsed.id)
+      const { data, error } = await supabase.rpc(rpcName, { p_profile_id: parsed.id })
+      console.log('RPC response:', { data, error })
+
+      if (error) throw error
+      if (!data) throw new Error('RPC returned no data')
+
+      if (!data.success) {
+        toast.error(data.message)
+        if (html5QrRef.current) {
+          setTimeout(async () => {
+            try { await html5QrRef.current?.resume() } catch {}
+            isProcessingScanRef.current = false
+          }, 2000)
+        } else {
+          isProcessingScanRef.current = false
+        }
+        return
+      }
+
+      const actionLabels = {
+        login: 'Logged IN',
+        logout: 'Logged OUT',
+        break_start: 'Break STARTED',
+        break_end: 'Break ENDED',
+      }
+
+      setLastScanResult({
+        name: data.full_name,
+        action: actionLabels[data.action],
+        time: new Date(data.time).toLocaleTimeString(),
+        hours: data.hours_worked,
+      })
+
+      toast.success(
+        `${data.full_name} — ${actionLabels[data.action]} at ${new Date(data.time).toLocaleTimeString()}`,
+        { duration: 5000 }
+      )
+
+      setLastScanAction({ rpcName, profileId: parsed.id, action: data.action })
+
+      if (rpcName === 'toggle_attendance_by_qr') {
+        await recalculateEmployeeStats(parsed.id)
+      }
+
+      // Refresh dashboard data after successful scan
+      await fetchAll()
+
+      // Pause scanner for 2 seconds after a successful scan before allowing next
+      if (html5QrRef.current) {
+        setTimeout(async () => {
+          try { await html5QrRef.current?.resume() } catch {}
+          isProcessingScanRef.current = false
+        }, 2000)
+      } else {
+        isProcessingScanRef.current = false
+      }
+
+    } catch (err) {
+      console.error('Scan RPC failed:', err)
+      toast.error('Failed to mark attendance — check internet connection')
+      if (html5QrRef.current) {
+        setTimeout(async () => {
+          try { await html5QrRef.current?.resume() } catch {}
+          isProcessingScanRef.current = false
+        }, 2000)
+      } else {
+        isProcessingScanRef.current = false
+      }
+    }
+  }
+
+  async function recalculateEmployeeStats(profileId) {
+    try {
+      const { data: history, error: fetchError } = await supabase
+        .from('login_history')
+        .select('login_at, hours_worked')
+        .eq('profile_id', profileId)
+        .eq('status', 'success')
+        .not('logout_at', 'is', null)
+
+      if (fetchError) throw fetchError
+
+      const historyList = history ?? []
+      const uniqueDays = new Set(historyList.map(r => r.login_at?.split('T')[0]).filter(Boolean))
+      const totalDaysCount = uniqueDays.size
+      const totalHrs = historyList.reduce((sum, r) => sum + parseFloat(r.hours_worked ?? 0), 0)
+
+      const { error: updateError } = await supabase
+        .from('employee_details')
+        .update({
+          total_working_days: totalDaysCount,
+          total_working_hours: parseFloat(totalHrs.toFixed(2))
+        })
+        .eq('profile_id', profileId)
+
+      if (updateError) throw updateError
+    } catch (err) {
+      console.error('Failed to recalculate employee details stats:', err)
+    }
+  }
+
+  async function undoLastScan() {
+    if (!lastScanAction) return
+    try {
+      // Calling the same toggle function again reverses the last action
+      const { data, error } = await supabase.rpc(lastScanAction.rpcName, { p_profile_id: lastScanAction.profileId })
+      if (error) throw error
+      toast.success(`Undone — ${data.full_name} reverted`)
+
+      if (lastScanAction.rpcName === 'toggle_attendance_by_qr') {
+        await recalculateEmployeeStats(lastScanAction.profileId)
+      }
+
+      setLastScanAction(null)
+      setLastScanResult(null)
+      await fetchAll()
+    } catch (err) {
+      toast.error('Failed to undo')
+    }
+  }
+
   return (
     <div>
       {/* Page header */}
@@ -249,6 +502,66 @@ export default function AdminDashboard() {
           Last updated: {fmtLastUpdated(lastUpdated)}
         </p>
       )}
+
+      {/* ── Attendance Scanner ── */}
+      <div style={{
+        background: '#FFFFFF', borderRadius: 16, border: '1px solid #DBEAFE',
+        boxShadow: '0 2px 8px rgba(0,174,239,0.06)', padding: 20, marginBottom: 24,
+      }}>
+        <h2 style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', margin: '0 0 4px' }}>
+          Attendance Scanner
+        </h2>
+        <p style={{ fontSize: 12, color: '#9CA3AF', margin: '0 0 16px' }}>
+          Scan employee ID cards to mark attendance or breaks
+        </p>
+
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => startScanner('attendance')}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '12px 20px', background: '#00AEEF', color: '#FFFFFF',
+              border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            <ScanLine size={16}/> Scan Attendance
+          </button>
+
+          <button
+            onClick={() => startScanner('break')}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '12px 20px', background: '#D97706', color: '#FFFFFF',
+              border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            <Coffee size={16}/> Break Scan
+          </button>
+        </div>
+
+        {lastScanResult && (
+          <div style={{
+            marginTop: 16, padding: '12px 16px', background: '#F0FFF4',
+            border: '1px solid #BBF7D0', borderRadius: 10,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+          }}>
+            <span style={{ fontSize: 13, color: '#16A34A', fontWeight: 600 }}>
+              {lastScanResult.name} — {lastScanResult.action} at {lastScanResult.time}
+              {lastScanResult.hours != null && ` (${lastScanResult.hours} hrs)`}
+            </span>
+            <button
+              onClick={undoLastScan}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                background: 'none', border: 'none', color: '#D97706',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              <Undo2 size={13}/> Undo
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* ── Two-column section ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '60% 1fr', gap: 20 }}>
@@ -422,6 +735,31 @@ export default function AdminDashboard() {
           .admin-two-col { grid-template-columns: 1fr !important; }
         }
       `}</style>
+
+      {scannerOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+        }}>
+          <div style={{
+            background: '#FFFFFF', borderRadius: 16, padding: 20,
+            width: '90%', maxWidth: 420,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', margin: 0 }}>
+                {scanMode === 'break' ? 'Break Scan' : 'Attendance Scan'}
+              </h3>
+              <button onClick={stopScanner} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
+                <X size={20} color="#6B7280"/>
+              </button>
+            </div>
+            <div id={scannerDivId} style={{ width: '100%', borderRadius: 10, overflow: 'hidden' }} />
+            <p style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 12 }}>
+              Point camera at employee's QR card
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

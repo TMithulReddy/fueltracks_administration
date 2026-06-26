@@ -77,11 +77,16 @@ export default function EmployeeDashboard() {
   const todayStr  = format(new Date(), 'EEEE, d MMMM yyyy')
 
   useEffect(() => {
-    if (user) fetchData()
+    if (!user) return
+    fetchData(false)
+    const timer = setInterval(() => {
+      fetchData(true)
+    }, 30_000)
+    return () => clearInterval(timer)
   }, [user])
 
-  async function fetchData() {
-    setLoading(true)
+  async function fetchData(silent = false) {
+    if (!silent) setLoading(true)
     try {
       const [{ data: det }, { data: hist }] = await Promise.all([
         supabase
@@ -94,7 +99,7 @@ export default function EmployeeDashboard() {
           .select('id, login_at, logout_at, hours_worked, session_duration_minutes, status, event_type')
           .eq('profile_id', user.id)
           .eq('status', 'success')
-          .eq('event_type', 'login')
+          .in('event_type', ['login', 'qr_scan'])
           .order('login_at', { ascending: false }),
       ])
       setDetails(det ?? null)
@@ -102,7 +107,7 @@ export default function EmployeeDashboard() {
     } catch (e) {
       console.error(e)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 

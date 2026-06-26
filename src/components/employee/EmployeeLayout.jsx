@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, UserCircle, Clock, Lock, LogOut, Menu, X, FileText, ClipboardList,
@@ -39,7 +39,7 @@ function SidebarLink({ to, label, Icon, end = false }) {
 }
 
 export default function EmployeeLayout() {
-  const { profile, signOut } = useAuth()
+  const { profile, signOut, refreshProfile } = useAuth()
   const navigate = useNavigate()
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
 
@@ -47,18 +47,18 @@ export default function EmployeeLayout() {
   const department = profileDetails.department || profile?.department || null
 
   const [sessionExpired, setSessionExpired] = useState(false)
+  const lastOnlineRef = useRef(profile?.is_online)
+
+  useEffect(() => {
+    lastOnlineRef.current = profile?.is_online
+  }, [profile?.is_online])
 
   useEffect(() => {
     if (!profile?.id) return
 
     const checkSession = async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('is_online')
-        .eq('id', profile.id)
-        .maybeSingle()
-      
-      if (data && data.is_online === false && profile.is_online === true) {
+      const refreshed = await refreshProfile()
+      if (refreshed && refreshed.is_online === false && lastOnlineRef.current === true) {
         setSessionExpired(true)
       }
     }
@@ -66,7 +66,7 @@ export default function EmployeeLayout() {
     // Check every 2 minutes
     const interval = setInterval(checkSession, 2 * 60 * 1000)
     return () => clearInterval(interval)
-  }, [profile?.id])
+  }, [profile?.id, refreshProfile])
 
   // Show forced logout screen
   if (sessionExpired) {

@@ -259,7 +259,7 @@ export default function DataExport() {
           details:employee_details!profile_id(department))
       `)
       .eq('status', 'success')
-      .eq('event_type', 'login')
+      .in('event_type', ['login', 'qr_scan'])
       .eq('profile.role', 'employee')
       .gte('login_at', `${fromDate}T00:00:00.000Z`)
       .lte('login_at', `${toDate}T23:59:59.999Z`)

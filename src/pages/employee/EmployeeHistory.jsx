@@ -70,7 +70,7 @@ export default function EmployeeHistory() {
         .select('id, login_at, hours_worked, status, event_type')
         .eq('profile_id', user.id)
         .eq('status', 'success')
-        .eq('event_type', 'login')
+        .in('event_type', ['login', 'qr_scan'])
 
       const sessions = data?.length ?? 0
       const uniqueDays = new Set((data ?? []).map(r => {

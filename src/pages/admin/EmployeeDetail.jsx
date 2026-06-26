@@ -555,12 +555,32 @@ export default function EmployeeDetail() {
   const handleResetPassword = async () => {
     setResetting(true)
     try {
+      // 1. Reset password via admin
       const { error: authResetErr } = await adminSupabase.auth.admin.updateUserById(id, { password: 'Fueltracks@1234' })
       if (authResetErr) throw authResetErr
 
-      const { error: profileResetErr } = await supabase.from('profiles').update({ must_change_password: true }).eq('id', id)
+      // 2. Set must_change_password flag and force offline
+      const { error: profileResetErr } = await supabase
+        .from('profiles')
+        .update({ 
+          must_change_password: true,
+          is_online: false
+        })
+        .eq('id', id)
       if (profileResetErr) throw profileResetErr
 
+      // 3. Close any open login sessions for this employee
+      await supabase
+        .from('login_history')
+        .update({ 
+          logout_at: new Date().toISOString(),
+          session_duration_minutes: 0,
+          hours_worked: 0
+        })
+        .eq('profile_id', id)
+        .is('logout_at', null)
+
+      // 4. Audit log
       supabase.from('admin_audit_log').insert({
         admin_id: currentAdminUser.id,
         admin_employee_id: currentAdminProfile?.employee_id || 'System',
@@ -574,6 +594,7 @@ export default function EmployeeDetail() {
       setShowResetModal(false)
       await fetchEmployeeData()
     } catch (err) {
+      console.error('Password reset error:', err)
       toast.error(err.message ?? 'Failed to reset password.')
     } finally {
       setResetting(false)

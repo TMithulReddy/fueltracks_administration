@@ -137,18 +137,36 @@ export default function EmployeeLogin() {
       // If open session exists today (any browser/device) → returns existing
       // If no open session today → creates new one
       // Unique index at DB level prevents duplicates even under concurrent logins
-      supabase.rpc('upsert_login_session', {
-        p_profile_id:      profile.id,
-        p_session_id:      crypto.randomUUID(),
-        p_daily_code_used: dailyCode.trim(),
-        p_login_at:        new Date().toISOString()
-      }).then(({ data, error }) => {
-        if (error) console.error('[Login Session]', error)
-        else console.log('[Login Session]', data?.message)
-      })
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.rpc('upsert_login_session', {
+          p_profile_id:      profile.id,
+          p_session_id:      crypto.randomUUID(),
+          p_daily_code_used: dailyCode.trim(),
+          p_login_at:        new Date().toISOString()
+        })
+        if (sessionError) {
+          console.error('[Login Session]', sessionError)
+        } else {
+          console.log('[Login Session]', sessionData?.message)
+        }
+      } catch (err) {
+        console.error('[Login Session Exception]', err)
+      }
 
-      supabase.from('profiles').update({ is_online: true }).eq('id', profile.id)
-        .then(({ error }) => { if (error) console.error('[Profiles]', error) })
+      try {
+        const { error: profileUpdateError } = await supabase
+          .from('profiles')
+          .update({ is_online: true })
+          .eq('id', profile.id)
+        
+        if (profileUpdateError) {
+          console.error('[Profiles]', profileUpdateError)
+        } else {
+          profile.is_online = true
+        }
+      } catch (err) {
+        console.error('[Profiles Exception]', err)
+      }
 
       toast.success('Welcome back!')
       setProfile(profile)
