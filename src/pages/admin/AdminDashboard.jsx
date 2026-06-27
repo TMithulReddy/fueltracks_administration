@@ -259,6 +259,7 @@ export default function AdminDashboard() {
         html5QrRef.current = qr
 
         const deviceCameras = await Html5Qrcode.getCameras()
+        alert(JSON.stringify(deviceCameras, null, 2))
         if (!deviceCameras || deviceCameras.length === 0) {
           throw new Error("No cameras found on this device.")
         }
