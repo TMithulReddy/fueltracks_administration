@@ -280,7 +280,8 @@ export default function AdminDashboard() {
           await startStream(qr, singleId, mode)
         } else {
           // Try to auto-select a camera labeled as facing back
-          const backCamera = deviceCameras.find(c => /back|rear/i.test(c.label))
+          const backCamera = deviceCameras.find(c => /back|rear|environment/i.test(c.label))
+
           if (backCamera) {
             const backIndex = deviceCameras.findIndex(c => c.id === backCamera.id)
             setSelectedCameraId(backCamera.id)
@@ -288,8 +289,54 @@ export default function AdminDashboard() {
             localStorage.setItem('fueltracks_preferred_camera_id', backCamera.id)
             await startStream(qr, backCamera.id, mode)
           } else {
-            // No back camera label found — show manual picker as fallback
-            setSelectedCameraId(null)
+            // Label matching failed — probe the browser's native getUserMedia
+            // with facingMode:"environment" to identify the back camera by deviceId.
+            // This bypasses html5-qrcode's buggy facingMode handling entirely.
+            let probedId = null
+            try {
+              const probeStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { exact: 'environment' } }
+              })
+              const track = probeStream.getVideoTracks()[0]
+              if (track) {
+                const settings = track.getSettings()
+                probedId = settings.deviceId || null
+              }
+              // Stop probe stream immediately — we only needed the deviceId
+              probeStream.getTracks().forEach(t => t.stop())
+            } catch {
+              // exact:"environment" rejected — try the non-exact hint
+              try {
+                const probeStream = await navigator.mediaDevices.getUserMedia({
+                  video: { facingMode: 'environment' }
+                })
+                const track = probeStream.getVideoTracks()[0]
+                if (track) {
+                  const settings = track.getSettings()
+                  probedId = settings.deviceId || null
+                }
+                probeStream.getTracks().forEach(t => t.stop())
+              } catch {
+                // getUserMedia failed entirely — will fall through to picker
+              }
+            }
+
+            // Match the probed deviceId to our camera list
+            const probedCamera = probedId
+              ? deviceCameras.find(c => c.id === probedId)
+              : null
+
+            if (probedCamera) {
+              const probedIndex = deviceCameras.findIndex(c => c.id === probedCamera.id)
+              setSelectedCameraId(probedCamera.id)
+              setCameraIndex(probedIndex)
+              localStorage.setItem('fueltracks_preferred_camera_id', probedCamera.id)
+              await startStream(qr, probedCamera.id, mode)
+            } else {
+              // Both label matching and browser probe failed —
+              // show manual picker as ultimate fallback
+              setSelectedCameraId(null)
+            }
           }
         }
 
