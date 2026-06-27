@@ -184,42 +184,74 @@ export default function EmployeeDashboard() {
         </span>
       </div>
 
-      {/* Active session banner */}
-      {profile?.is_online && history[0]?.login_at && (
+      {/* Active or Last session banner */}
+      {history[0]?.login_at && (
         (() => {
+          const isActive = !history[0].logout_at
           const loginTime = new Date(history[0].login_at).getTime()
-          const diffMs = nowTime.getTime() - loginTime
+          const endTime = isActive ? nowTime.getTime() : new Date(history[0].logout_at).getTime()
+          const diffMs = endTime - loginTime
           const diffMins = Math.max(0, Math.round(diffMs / (1000 * 60)))
           const hrs = Math.floor(diffMins / 60)
           const mins = diffMins % 60
           const durationStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`
 
-          return (
-            <div style={{
-              background: '#F0FFF4',
-              border: '1px solid #BBF7D0',
-              borderRadius: 12,
-              padding: '12px 16px',
-              marginBottom: 24,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-            }}>
-              <span style={{
-                width: 10, height: 10, borderRadius: '50%',
-                background: '#16A34A',
-                display: 'inline-block',
-                flexShrink: 0,
-                animation: 'pulse-green 2s cubic-bezier(0.4,0,0.6,1) infinite',
-              }} />
-              <span style={{ fontSize: 13, color: '#16A34A', fontWeight: 500 }}>
-                Active session started at{' '}
-                <strong>{format(parseISO(history[0].login_at), 'h:mm a')}</strong>
-                {' · '}
-                <span>Duration: <strong>{durationStr}</strong> (live)</span>
-              </span>
-            </div>
-          )
+          if (isActive && profile?.is_online) {
+            return (
+              <div style={{
+                background: '#F0FFF4',
+                border: '1px solid #BBF7D0',
+                borderRadius: 12,
+                padding: '12px 16px',
+                marginBottom: 24,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+              }}>
+                <span style={{
+                  width: 10, height: 10, borderRadius: '50%',
+                  background: '#16A34A',
+                  display: 'inline-block',
+                  flexShrink: 0,
+                  animation: 'pulse-green 2s cubic-bezier(0.4,0,0.6,1) infinite',
+                }} />
+                <span style={{ fontSize: 13, color: '#16A34A', fontWeight: 500 }}>
+                  Active session started at{' '}
+                  <strong>{format(parseISO(history[0].login_at), 'h:mm a')}</strong>
+                  {' · '}
+                  <span>Duration: <strong>{durationStr}</strong> (live)</span>
+                </span>
+              </div>
+            )
+          } else {
+            return (
+              <div style={{
+                background: '#F3F4F6',
+                border: '1px solid #E5E7EB',
+                borderRadius: 12,
+                padding: '12px 16px',
+                marginBottom: 24,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+              }}>
+                <span style={{
+                  width: 10, height: 10, borderRadius: '50%',
+                  background: '#9CA3AF',
+                  display: 'inline-block',
+                  flexShrink: 0,
+                }} />
+                <span style={{ fontSize: 13, color: '#6B7280', fontWeight: 500 }}>
+                  Last session:{' '}
+                  <strong>{format(parseISO(history[0].login_at), 'd MMM, h:mm a')}</strong>
+                  {' to '}
+                  <strong>{history[0].logout_at ? format(parseISO(history[0].logout_at), 'h:mm a') : '—'}</strong>
+                  {' · '}
+                  <span>Duration: <strong>{durationStr}</strong> (completed)</span>
+                </span>
+              </div>
+            )
+          }
         })()
       )}
 

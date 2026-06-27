@@ -169,30 +169,34 @@ export function AuthProvider({ children }) {
             .eq('id', activeSession.id)
 
           // 2. Fetch past successful history to aggregate statistics and save to employee_details table
-          const { data: allHistory } = await supabase
-            .from('login_history')
-            .select('login_at, hours_worked')
-            .eq('profile_id', user.id)
-            .eq('status', 'success')
+          try {
+            const { data: allHistory } = await supabase
+              .from('login_history')
+              .select('login_at, hours_worked')
+              .eq('profile_id', user.id)
+              .eq('status', 'success')
 
-          const historyList = allHistory ?? []
-          const uniqueDays = new Set(historyList.map(r => r.login_at?.split('T')[0]).filter(Boolean))
-          // Make sure current login_at is in uniqueDays
-          if (activeSession.login_at) {
-            uniqueDays.add(activeSession.login_at.split('T')[0])
+            const historyList = allHistory ?? []
+            const uniqueDays = new Set(historyList.map(r => r.login_at?.split('T')[0]).filter(Boolean))
+            // Make sure current login_at is in uniqueDays
+            if (activeSession.login_at) {
+              uniqueDays.add(activeSession.login_at.split('T')[0])
+            }
+            const totalDaysCount = uniqueDays.size
+
+            let totalHrs = historyList.reduce((sum, r) => sum + parseFloat(r.hours_worked ?? 0), 0)
+            // Add current session's hours worked
+            totalHrs += hrsWorked
+
+            await supabase.from('employee_details')
+              .update({
+                total_working_days: totalDaysCount,
+                total_working_hours: parseFloat(totalHrs.toFixed(2))
+              })
+              .eq('profile_id', user.id)
+          } catch (statsErr) {
+            console.error('[AuthContext] Failed to recalculate stats on sign out:', statsErr)
           }
-          const totalDaysCount = uniqueDays.size
-
-          let totalHrs = historyList.reduce((sum, r) => sum + parseFloat(r.hours_worked ?? 0), 0)
-          // Add current session's hours worked
-          totalHrs += hrsWorked
-
-          await supabase.from('employee_details')
-            .update({
-              total_working_days: totalDaysCount,
-              total_working_hours: parseFloat(totalHrs.toFixed(2))
-            })
-            .eq('profile_id', user.id)
         } else {
           // Fallback if no active session is found — only update the single most recent open session
           const { data: latestOpen } = await supabase
