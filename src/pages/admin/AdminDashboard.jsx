@@ -259,7 +259,6 @@ export default function AdminDashboard() {
         html5QrRef.current = qr
 
         const deviceCameras = await Html5Qrcode.getCameras()
-        alert(JSON.stringify(deviceCameras, null, 2))
         if (!deviceCameras || deviceCameras.length === 0) {
           throw new Error("No cameras found on this device.")
         }
@@ -280,8 +279,18 @@ export default function AdminDashboard() {
           setCameraIndex(0)
           await startStream(qr, singleId, mode)
         } else {
-          // Multiple cameras and no preference: wait for manual pick in UI
-          setSelectedCameraId(null)
+          // Try to auto-select a camera labeled as facing back
+          const backCamera = deviceCameras.find(c => /back/i.test(c.label))
+          if (backCamera) {
+            const backIndex = deviceCameras.findIndex(c => c.id === backCamera.id)
+            setSelectedCameraId(backCamera.id)
+            setCameraIndex(backIndex)
+            localStorage.setItem('fueltracks_preferred_camera_id', backCamera.id)
+            await startStream(qr, backCamera.id, mode)
+          } else {
+            // No back camera label found — show manual picker as fallback
+            setSelectedCameraId(null)
+          }
         }
 
       } catch (err) {
