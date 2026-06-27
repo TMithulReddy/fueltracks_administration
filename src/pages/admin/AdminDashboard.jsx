@@ -106,6 +106,7 @@ export default function AdminDashboard() {
   const [scannerOpen, setScannerOpen] = useState(false)
   const [cameras, setCameras] = useState([])
   const [cameraIndex, setCameraIndex] = useState(0)
+  const [selectedCameraId, setSelectedCameraId] = useState(null)
   const [scanMode, setScanMode] = useState(null) // 'attendance' or 'break'
   const [lastScanResult, setLastScanResult] = useState(null)
   const [lastScanAction, setLastScanAction] = useState(null) // for undo
@@ -207,6 +208,48 @@ export default function AdminDashboard() {
     return `${Math.floor(secs / 60)} minutes ago`
   }
 
+  async function startStream(qr, cameraId, mode) {
+    const config = {
+      fps: 15,
+      qrbox: function(viewfinderWidth, viewfinderHeight) {
+        const minEdge = Math.min(viewfinderWidth, viewfinderHeight)
+        const boxSize = Math.floor(minEdge * 0.85)
+        return { width: boxSize, height: boxSize }
+      },
+      aspectRatio: 1.0,
+      disableFlip: false,
+      videoConstraints: {
+        width: { min: 640, ideal: 1280, max: 1920 },
+        height: { min: 480, ideal: 720, max: 1080 }
+      },
+      experimentalFeatures: {
+        useBarCodeDetectorIfSupported: true
+      },
+      formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
+    }
+
+    await qr.start(
+      cameraId,
+      config,
+      (decodedText) => handleScanSuccess(decodedText, mode),
+      () => {}
+    )
+  }
+
+  async function handleCameraSelect(cameraId, index) {
+    if (!html5QrRef.current) return
+    localStorage.setItem('fueltracks_preferred_camera_id', cameraId)
+    setSelectedCameraId(cameraId)
+    setCameraIndex(index)
+    try {
+      await startStream(html5QrRef.current, cameraId, scanMode)
+    } catch (err) {
+      console.error('Failed to start stream with selected camera:', err)
+      toast.error('Failed to start camera: ' + (err.message || err))
+      setSelectedCameraId(null)
+    }
+  }
+
   async function startScanner(mode) {
     setScanMode(mode)
     setScannerOpen(true)
@@ -215,50 +258,30 @@ export default function AdminDashboard() {
         const qr = new Html5Qrcode(scannerDivId, { verbose: false })
         html5QrRef.current = qr
 
-        const config = {
-          fps: 15,
-          qrbox: function(viewfinderWidth, viewfinderHeight) {
-            const minEdge = Math.min(viewfinderWidth, viewfinderHeight)
-            const boxSize = Math.floor(minEdge * 0.85)
-            return { width: boxSize, height: boxSize }
-          },
-          aspectRatio: 1.0,
-          disableFlip: false,
-          videoConstraints: {
-            width: { min: 640, ideal: 1280, max: 1920 },
-            height: { min: 480, ideal: 720, max: 1080 }
-          },
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true
-          },
-          formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
-        }
-
         const deviceCameras = await Html5Qrcode.getCameras()
-        console.log('[Html5Qrcode Cameras RAW Output]:', JSON.stringify(deviceCameras, null, 2))
         if (!deviceCameras || deviceCameras.length === 0) {
           throw new Error("No cameras found on this device.")
         }
         setCameras(deviceCameras)
 
-        const backCamera = deviceCameras.find(c => /back|rear/i.test(c.label))
-        let startIndex = 0
-        if (backCamera) {
-          startIndex = deviceCameras.indexOf(backCamera)
-        } else if (deviceCameras.length > 1) {
-          startIndex = 1 // Default to index 1 as fallback for 2+ camera devices
-        } else {
-          startIndex = 0
-        }
-        setCameraIndex(startIndex)
-        const cameraId = deviceCameras[startIndex]?.id
+        // Check if there is a saved camera preference
+        const preferredId = localStorage.getItem('fueltracks_preferred_camera_id')
+        const hasPreferred = preferredId && deviceCameras.some(c => c.id === preferredId)
 
-        await qr.start(
-          cameraId,
-          config,
-          (decodedText) => handleScanSuccess(decodedText, mode),
-          () => {}
-        )
+        if (hasPreferred) {
+          const prefIndex = deviceCameras.findIndex(c => c.id === preferredId)
+          setSelectedCameraId(preferredId)
+          setCameraIndex(prefIndex)
+          await startStream(qr, preferredId, mode)
+        } else if (deviceCameras.length === 1) {
+          const singleId = deviceCameras[0].id
+          setSelectedCameraId(singleId)
+          setCameraIndex(0)
+          await startStream(qr, singleId, mode)
+        } else {
+          // Multiple cameras and no preference: wait for manual pick in UI
+          setSelectedCameraId(null)
+        }
 
       } catch (err) {
         console.error('Camera scan error:', err)
@@ -297,6 +320,7 @@ export default function AdminDashboard() {
     setScanMode(null)
     setCameras([])
     setCameraIndex(0)
+    setSelectedCameraId(null)
   }
 
   async function switchCamera() {
@@ -305,53 +329,21 @@ export default function AdminDashboard() {
     const nextIndex = (cameraIndex + 1) % cameras.length
     const nextCameraId = cameras[nextIndex]?.id
 
-    // 1. Stop current camera, clear resources completely
+    // Update state and storage
+    setCameraIndex(nextIndex)
+    setSelectedCameraId(nextCameraId)
+    localStorage.setItem('fueltracks_preferred_camera_id', nextCameraId)
+
     try {
       if (html5QrRef.current.isScanning) {
         await html5QrRef.current.stop()
       }
-      await html5QrRef.current.clear()
     } catch (err) {
       console.error('Error stopping scanner during switch:', err)
     }
 
-    html5QrRef.current = null
-
-    // 2. Delay briefly to allow camera hardware state release
-    await new Promise(resolve => setTimeout(resolve, 400))
-
-    // 3. Create a NEW Html5Qrcode instance
     try {
-      const qr = new Html5Qrcode(scannerDivId, { verbose: false })
-      html5QrRef.current = qr
-
-      const config = {
-        fps: 15,
-        qrbox: function(viewfinderWidth, viewfinderHeight) {
-          const minEdge = Math.min(viewfinderWidth, viewfinderHeight)
-          const boxSize = Math.floor(minEdge * 0.85)
-          return { width: boxSize, height: boxSize }
-        },
-        aspectRatio: 1.0,
-        disableFlip: false,
-        videoConstraints: {
-          width: { min: 640, ideal: 1280, max: 1920 },
-          height: { min: 480, ideal: 720, max: 1080 }
-        },
-        experimentalFeatures: {
-          useBarCodeDetectorIfSupported: true
-        },
-        formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
-      }
-
-      await qr.start(
-        nextCameraId,
-        config,
-        (decodedText) => handleScanSuccess(decodedText, scanMode),
-        () => {}
-      )
-
-      setCameraIndex(nextIndex)
+      await startStream(html5QrRef.current, nextCameraId, scanMode)
     } catch (err) {
       console.error('Error restarting scanner with next camera:', err)
       toast.error('Failed to switch camera: ' + (err.message || err))
@@ -864,19 +856,49 @@ export default function AdminDashboard() {
                 </button>
               </div>
             </div>
-            <div id={scannerDivId} style={{ width: '100%', borderRadius: 10, overflow: 'hidden' }} />
-            <p style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 12 }}>
-              Point camera at employee's QR card
-            </p>
-            {cameras.length > 0 && (
-              <div style={{ marginTop: 10, padding: 8, background: '#F9FAFB', borderRadius: 8, border: '1px dashed #E5E7EB', textAlign: 'left' }}>
-                <p style={{ fontSize: 10, color: '#4B5563', margin: '0 0 4px', fontWeight: 600 }}>Detected Cameras ({cameras.length}):</p>
-                {cameras.map((c, idx) => (
-                  <p key={c.id} style={{ fontSize: 9, color: idx === cameraIndex ? '#00AEEF' : '#6B7280', margin: '2px 0', fontWeight: idx === cameraIndex ? '700' : '400' }}>
-                    {idx === cameraIndex ? '●' : '○'} [{idx}] {c.label || 'Unnamed Camera'} (ID: {c.id.substring(0, 8)}...)
-                  </p>
-                ))}
+            {!selectedCameraId && cameras.length > 1 ? (
+              <div style={{ padding: '20px 10px', textAlign: 'center' }}>
+                <p style={{ fontSize: 14, fontWeight: 600, color: '#1B3A6B', marginBottom: 16 }}>
+                  Select Camera to Use:
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {cameras.map((cam, idx) => (
+                    <button
+                      key={cam.id}
+                      onClick={() => handleCameraSelect(cam.id, idx)}
+                      style={{
+                        background: '#00AEEF',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '10px 14px',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        whiteSpace: 'normal',
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      {cam.label || `Camera ${idx + 1}`}
+                    </button>
+                  ))}
+                </div>
               </div>
+            ) : null}
+            <div 
+              id={scannerDivId} 
+              style={{ 
+                width: '100%', 
+                borderRadius: 10, 
+                overflow: 'hidden',
+                display: selectedCameraId || cameras.length <= 1 ? 'block' : 'none'
+              }} 
+            />
+            {(selectedCameraId || cameras.length <= 1) && (
+              <p style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 12 }}>
+                Point camera at employee's QR card
+              </p>
             )}
           </div>
         </div>
