@@ -218,7 +218,13 @@ export default function AdminDashboard() {
       },
       aspectRatio: 1.0,
       disableFlip: false,
+      // IMPORTANT: deviceId MUST be inside videoConstraints.
+      // If videoConstraints is present without deviceId, html5-qrcode
+      // ignores the cameraId first argument and the browser picks
+      // whichever camera it wants (usually front). This was the root
+      // cause of the "always front camera" bug.
       videoConstraints: {
+        deviceId: { exact: cameraId },
         width: { min: 640, ideal: 1280, max: 1920 },
         height: { min: 480, ideal: 720, max: 1080 }
       },
@@ -386,21 +392,33 @@ export default function AdminDashboard() {
     const nextIndex = (cameraIndex + 1) % cameras.length
     const nextCameraId = cameras[nextIndex]?.id
 
-    // Update state and storage
-    setCameraIndex(nextIndex)
-    setSelectedCameraId(nextCameraId)
-    localStorage.setItem('fueltracks_preferred_camera_id', nextCameraId)
-
+    // 1. Stop and fully destroy the current instance.
+    //    Reusing the same html5-qrcode instance after stop() does NOT
+    //    reliably release the camera hardware on many Android devices,
+    //    causing it to reopen the same (front) camera.
     try {
       if (html5QrRef.current.isScanning) {
         await html5QrRef.current.stop()
       }
+      await html5QrRef.current.clear()
     } catch (err) {
       console.error('Error stopping scanner during switch:', err)
     }
+    html5QrRef.current = null
 
+    // 2. Brief delay to let camera hardware fully release
+    await new Promise(resolve => setTimeout(resolve, 400))
+
+    // 3. Create a fresh instance and start with the new camera
     try {
-      await startStream(html5QrRef.current, nextCameraId, scanMode)
+      const qr = new Html5Qrcode(scannerDivId, { verbose: false })
+      html5QrRef.current = qr
+      await startStream(qr, nextCameraId, scanMode)
+
+      // Update state and storage only after successful start
+      setCameraIndex(nextIndex)
+      setSelectedCameraId(nextCameraId)
+      localStorage.setItem('fueltracks_preferred_camera_id', nextCameraId)
     } catch (err) {
       console.error('Error restarting scanner with next camera:', err)
       toast.error('Failed to switch camera: ' + (err.message || err))
