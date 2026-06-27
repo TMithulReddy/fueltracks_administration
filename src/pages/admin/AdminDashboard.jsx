@@ -280,7 +280,7 @@ export default function AdminDashboard() {
           await startStream(qr, singleId, mode)
         } else {
           // Try to auto-select a camera labeled as facing back
-          const backCamera = deviceCameras.find(c => /back/i.test(c.label))
+          const backCamera = deviceCameras.find(c => /back|rear/i.test(c.label))
           if (backCamera) {
             const backIndex = deviceCameras.findIndex(c => c.id === backCamera.id)
             setSelectedCameraId(backCamera.id)
