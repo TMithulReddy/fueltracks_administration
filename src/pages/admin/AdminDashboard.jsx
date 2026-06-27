@@ -104,7 +104,8 @@ export default function AdminDashboard() {
   const [error, setError]               = useState('')
   const [lastUpdated, setLastUpdated]   = useState(null)
   const [scannerOpen, setScannerOpen] = useState(false)
-  const [facingMode, setFacingMode] = useState('environment')
+  const [cameras, setCameras] = useState([])
+  const [cameraIndex, setCameraIndex] = useState(0)
   const [scanMode, setScanMode] = useState(null) // 'attendance' or 'break'
   const [lastScanResult, setLastScanResult] = useState(null)
   const [lastScanAction, setLastScanAction] = useState(null) // for undo
@@ -215,7 +216,7 @@ export default function AdminDashboard() {
         html5QrRef.current = qr
 
         const config = {
-          fps: 24,
+          fps: 15,
           qrbox: function(viewfinderWidth, viewfinderHeight) {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight)
             const boxSize = Math.floor(minEdge * 0.85)
@@ -224,8 +225,8 @@ export default function AdminDashboard() {
           aspectRatio: 1.0,
           disableFlip: false,
           videoConstraints: {
-            width: { min: 1280, ideal: 1920, max: 2560 },
-            height: { min: 720, ideal: 1080, max: 1440 }
+            width: { min: 640, ideal: 1280, max: 1920 },
+            height: { min: 480, ideal: 720, max: 1080 }
           },
           experimentalFeatures: {
             useBarCodeDetectorIfSupported: true
@@ -233,36 +234,28 @@ export default function AdminDashboard() {
           formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
         }
 
-        let startError = null
-        try {
-          await qr.start(
-            { facingMode: facingMode },
-            config,
-            (decodedText) => handleScanSuccess(decodedText, mode),
-            () => {}
-          )
-        } catch (err) {
-          if (facingMode === 'environment') {
-            console.warn('Failed to start with environment camera, trying user camera fallback...', err)
-            try {
-              setFacingMode('user')
-              await qr.start(
-                { facingMode: 'user' },
-                config,
-                (decodedText) => handleScanSuccess(decodedText, mode),
-                () => {}
-              )
-            } catch (fallbackErr) {
-              startError = fallbackErr
-            }
-          } else {
-            startError = err
-          }
+        const deviceCameras = await Html5Qrcode.getCameras()
+        if (!deviceCameras || deviceCameras.length === 0) {
+          throw new Error("No cameras found on this device.")
         }
+        setCameras(deviceCameras)
 
-        if (startError) {
-          throw startError
+        const backCamera = deviceCameras.find(c => /back|rear/i.test(c.label))
+        let startIndex = 0
+        if (backCamera) {
+          startIndex = deviceCameras.indexOf(backCamera)
+        } else if (deviceCameras.length > 0) {
+          startIndex = deviceCameras.length - 1
         }
+        setCameraIndex(startIndex)
+        const cameraId = deviceCameras[startIndex]?.id
+
+        await qr.start(
+          cameraId,
+          config,
+          (decodedText) => handleScanSuccess(decodedText, mode),
+          () => {}
+        )
 
       } catch (err) {
         console.error('Camera scan error:', err)
@@ -294,12 +287,16 @@ export default function AdminDashboard() {
     }
     setScannerOpen(false)
     setScanMode(null)
+    setCameras([])
+    setCameraIndex(0)
   }
 
   async function switchCamera() {
-    if (!html5QrRef.current) return
-    const nextFacingMode = facingMode === 'environment' ? 'user' : 'environment'
-    setFacingMode(nextFacingMode)
+    if (!html5QrRef.current || cameras.length <= 1) return
+
+    const nextIndex = (cameraIndex + 1) % cameras.length
+    setCameraIndex(nextIndex)
+    const nextCameraId = cameras[nextIndex]?.id
 
     try {
       if (html5QrRef.current.isScanning) {
@@ -311,7 +308,7 @@ export default function AdminDashboard() {
 
     try {
       const config = {
-        fps: 24,
+        fps: 15,
         qrbox: function(viewfinderWidth, viewfinderHeight) {
           const minEdge = Math.min(viewfinderWidth, viewfinderHeight)
           const boxSize = Math.floor(minEdge * 0.85)
@@ -320,8 +317,8 @@ export default function AdminDashboard() {
         aspectRatio: 1.0,
         disableFlip: false,
         videoConstraints: {
-          width: { min: 1280, ideal: 1920, max: 2560 },
-          height: { min: 720, ideal: 1080, max: 1440 }
+          width: { min: 640, ideal: 1280, max: 1920 },
+          height: { min: 480, ideal: 720, max: 1080 }
         },
         experimentalFeatures: {
           useBarCodeDetectorIfSupported: true
@@ -330,15 +327,14 @@ export default function AdminDashboard() {
       }
 
       await html5QrRef.current.start(
-        { facingMode: nextFacingMode },
+        nextCameraId,
         config,
         (decodedText) => handleScanSuccess(decodedText, scanMode),
         () => {}
       )
     } catch (err) {
-      console.error('Error restarting scanner with new facingMode:', err)
+      console.error('Error restarting scanner with next camera:', err)
       toast.error('Failed to switch camera: ' + (err.message || err))
-      setFacingMode(facingMode)
     }
   }
 
@@ -823,24 +819,26 @@ export default function AdminDashboard() {
                 {scanMode === 'break' ? 'Break Scan' : 'Attendance Scan'}
               </h3>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <button
-                  onClick={switchCamera}
-                  title="Switch Camera"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    color: '#00AEEF',
-                    fontSize: 13,
-                    fontWeight: 600
-                  }}
-                >
-                  <RefreshCw size={16} />
-                  <span>Switch</span>
-                </button>
+                {cameras.length > 1 && (
+                  <button
+                    onClick={switchCamera}
+                    title="Switch Camera"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      color: '#00AEEF',
+                      fontSize: 13,
+                      fontWeight: 600
+                    }}
+                  >
+                    <RefreshCw size={16} />
+                    <span>Switch</span>
+                  </button>
+                )}
                 <button onClick={stopScanner} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
                   <X size={20} color="#6B7280"/>
                 </button>
