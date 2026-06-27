@@ -235,6 +235,7 @@ export default function AdminDashboard() {
         }
 
         const deviceCameras = await Html5Qrcode.getCameras()
+        console.log('[Html5Qrcode Cameras RAW Output]:', JSON.stringify(deviceCameras, null, 2))
         if (!deviceCameras || deviceCameras.length === 0) {
           throw new Error("No cameras found on this device.")
         }
@@ -244,8 +245,10 @@ export default function AdminDashboard() {
         let startIndex = 0
         if (backCamera) {
           startIndex = deviceCameras.indexOf(backCamera)
-        } else if (deviceCameras.length > 0) {
-          startIndex = deviceCameras.length - 1
+        } else if (deviceCameras.length > 1) {
+          startIndex = 1 // Default to index 1 as fallback for 2+ camera devices
+        } else {
+          startIndex = 0
         }
         setCameraIndex(startIndex)
         const cameraId = deviceCameras[startIndex]?.id
@@ -282,7 +285,12 @@ export default function AdminDashboard() {
 
   async function stopScanner() {
     if (html5QrRef.current) {
-      try { await html5QrRef.current.stop(); await html5QrRef.current.clear() } catch {}
+      try {
+        if (html5QrRef.current.isScanning) {
+          await html5QrRef.current.stop()
+        }
+        await html5QrRef.current.clear()
+      } catch {}
       html5QrRef.current = null
     }
     setScannerOpen(false)
@@ -295,18 +303,28 @@ export default function AdminDashboard() {
     if (!html5QrRef.current || cameras.length <= 1) return
 
     const nextIndex = (cameraIndex + 1) % cameras.length
-    setCameraIndex(nextIndex)
     const nextCameraId = cameras[nextIndex]?.id
 
+    // 1. Stop current camera, clear resources completely
     try {
       if (html5QrRef.current.isScanning) {
         await html5QrRef.current.stop()
       }
+      await html5QrRef.current.clear()
     } catch (err) {
       console.error('Error stopping scanner during switch:', err)
     }
 
+    html5QrRef.current = null
+
+    // 2. Delay briefly to allow camera hardware state release
+    await new Promise(resolve => setTimeout(resolve, 400))
+
+    // 3. Create a NEW Html5Qrcode instance
     try {
+      const qr = new Html5Qrcode(scannerDivId, { verbose: false })
+      html5QrRef.current = qr
+
       const config = {
         fps: 15,
         qrbox: function(viewfinderWidth, viewfinderHeight) {
@@ -326,12 +344,14 @@ export default function AdminDashboard() {
         formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ]
       }
 
-      await html5QrRef.current.start(
+      await qr.start(
         nextCameraId,
         config,
         (decodedText) => handleScanSuccess(decodedText, scanMode),
         () => {}
       )
+
+      setCameraIndex(nextIndex)
     } catch (err) {
       console.error('Error restarting scanner with next camera:', err)
       toast.error('Failed to switch camera: ' + (err.message || err))
@@ -848,6 +868,16 @@ export default function AdminDashboard() {
             <p style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 12 }}>
               Point camera at employee's QR card
             </p>
+            {cameras.length > 0 && (
+              <div style={{ marginTop: 10, padding: 8, background: '#F9FAFB', borderRadius: 8, border: '1px dashed #E5E7EB', textAlign: 'left' }}>
+                <p style={{ fontSize: 10, color: '#4B5563', margin: '0 0 4px', fontWeight: 600 }}>Detected Cameras ({cameras.length}):</p>
+                {cameras.map((c, idx) => (
+                  <p key={c.id} style={{ fontSize: 9, color: idx === cameraIndex ? '#00AEEF' : '#6B7280', margin: '2px 0', fontWeight: idx === cameraIndex ? '700' : '400' }}>
+                    {idx === cameraIndex ? '●' : '○'} [{idx}] {c.label || 'Unnamed Camera'} (ID: {c.id.substring(0, 8)}...)
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
