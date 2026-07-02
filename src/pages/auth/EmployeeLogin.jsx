@@ -43,10 +43,9 @@ export default function EmployeeLogin() {
 
   const [identifier, setIdentifier] = useState('')
   const [password,   setPassword]   = useState('')
-  const [dailyCode,  setDailyCode]  = useState('')
   const [showPw,     setShowPw]     = useState(false)
   const [loading,    setLoading]    = useState(false)
-  const [errors, setErrors] = useState({ identifier: '', password: '', dailyCode: '', general: '' })
+  const [errors, setErrors] = useState({ identifier: '', password: '', general: '' })
 
   useEffect(() => {
     if (!loading) return
@@ -98,7 +97,7 @@ export default function EmployeeLogin() {
         supabase.from('login_history').insert({
           profile_id: null, session_id: crypto.randomUUID(),
           event_type: 'failed_attempt', login_at: new Date().toISOString(),
-          status: 'failed', daily_code_used: dailyCode.trim(), daily_code_valid: false,
+          status: 'failed',
         }).then(({ error }) => { if (error) console.error('[Login History]', error) })
 
         setError('Invalid credentials. Please try again.')
@@ -119,13 +118,6 @@ export default function EmployeeLogin() {
         return
       }
 
-      const { data: codeCheck } = await supabase.rpc('validate_daily_code', { p_code: dailyCode.trim() })
-
-      if (!codeCheck || !codeCheck.valid) {
-        await supabase.auth.signOut()
-        setError(codeCheck?.message || 'Invalid daily code. Contact your admin.')
-        return
-      }
 
       if (profile.role !== 'employee') {
         await supabase.auth.signOut()
@@ -141,7 +133,6 @@ export default function EmployeeLogin() {
         const { data: sessionData, error: sessionError } = await supabase.rpc('upsert_login_session', {
           p_profile_id:      profile.id,
           p_session_id:      crypto.randomUUID(),
-          p_daily_code_used: dailyCode.trim(),
           p_login_at:        new Date().toISOString()
         })
         if (sessionError) {
@@ -261,18 +252,6 @@ export default function EmployeeLogin() {
               <FieldError message={errors.password} />
             </div>
 
-            <div style={{ marginBottom: 24 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#1B3A6B', marginBottom: 6 }}>
-                Daily Authentication Code
-              </label>
-              <input id="daily-code" type="text" inputMode="numeric" pattern="\d{4}" maxLength={4}
-                placeholder="Enter today's 4-digit code"
-                value={dailyCode} onChange={e => setDailyCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                disabled={loading} className={`input-field${errors.dailyCode ? ' error' : ''}`}
-                style={{ letterSpacing: '0.35em', fontSize: 18, fontWeight: 600, textAlign: 'center' }} />
-              <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: 5 }}>Contact your admin for today's code</p>
-              <FieldError message={errors.dailyCode} />
-            </div>
 
             <button id="employee-signin-btn" type="submit" disabled={loading}
               className="btn-primary" style={{ width: '100%', padding: '13px', fontSize: 15 }}>
